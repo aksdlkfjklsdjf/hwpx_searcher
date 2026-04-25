@@ -1,0 +1,726 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { spawn } from "node:child_process";
+import net from "node:net";
+
+const htmlPath = path.resolve(process.argv[2] ?? "hwp-search.html");
+const htmlDir = path.dirname(htmlPath);
+const wasmPath = path.join(htmlDir, "rhwp_bg.wasm");
+const wasmFallbackPath = path.join(htmlDir, "rhwp_bg.wasm.base64.js");
+const [htmlSource, wasmBytes, wasmFallbackSource] = await Promise.all([
+  readFile(htmlPath, "utf8"),
+  readFile(wasmPath),
+  readFile(wasmFallbackPath, "utf8"),
+]);
+if (htmlSource.includes("\"rhwpWasmBase64\":\"")) {
+  throw new Error("Production HTML should not embed rhwp WASM base64");
+}
+if (!htmlSource.includes("\"rhwpWasmUrl\":\"rhwp_bg.wasm\"") || !htmlSource.includes("\"rhwpWasmFallbackUrl\":\"rhwp_bg.wasm.base64.js\"")) {
+  throw new Error("Production HTML is missing external WASM asset references");
+}
+if (!wasmBytes.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
+  throw new Error("rhwp_bg.wasm does not have a WASM magic header");
+}
+if (!wasmFallbackSource.includes("__HWP_SEARCH_RHWP_WASM_BASE64__")) {
+  throw new Error("WASM fallback script is missing its global payload");
+}
+const chromePath = findChrome();
+const port = await getFreePort();
+const userDataDir = await mkdtemp(path.join(tmpdir(), "hwp-html-chrome-"));
+const chrome = spawn(chromePath, [
+  "--headless=new",
+  "--disable-gpu",
+  "--no-first-run",
+  "--no-default-browser-check",
+  `--remote-debugging-port=${port}`,
+  `--user-data-dir=${userDataDir}`,
+  pathToFileURL(htmlPath).href,
+], {
+  stdio: ["ignore", "pipe", "pipe"],
+});
+
+let stderr = "";
+chrome.stderr.on("data", (chunk) => {
+  stderr += String(chunk);
+});
+
+try {
+  const page = await waitForPage(port);
+  const client = await connectCdp(page.webSocketDebuggerUrl);
+
+  await client.send("Runtime.enable");
+  await client.send("Log.enable");
+  await client.send("Page.enable");
+
+  const ready = await waitForReady(client);
+  if (!ready.ok) {
+    throw new Error(`App reported failure: ${ready.error ?? "unknown error"}`);
+  }
+  if (ready.sampleCount !== 0) {
+    throw new Error(`Production app should not embed sample documents, saw ${ready.sampleCount}`);
+  }
+  if (ready.localCount !== 0 || ready.documentCount !== 0) {
+    throw new Error(`Unexpected initial document counts: ${JSON.stringify(ready)}`);
+  }
+  if (ready.parsedOnLoad !== false || ready.searchResultCount !== 0) {
+    throw new Error(`Documents should not be parsed before search: ${JSON.stringify(ready)}`);
+  }
+  if (!["wasm-file", "wasm-fallback-script"].includes(ready.wasmSource)) {
+    throw new Error(`App did not load rhwp through an external WASM path: ${JSON.stringify(ready)}`);
+  }
+  if (!ready.workerSupported || ready.maxWorkers < 1) {
+    throw new Error(`Worker support was not detected: ${JSON.stringify(ready)}`);
+  }
+  if (ready.themePreference !== "system" || !["light", "dark"].includes(ready.theme)) {
+    throw new Error(`Initial system theme was not reported: ${JSON.stringify(ready)}`);
+  }
+  if (ready.language !== "en") {
+    throw new Error(`Initial language was wrong: ${JSON.stringify(ready)}`);
+  }
+  const initialUi = await client.evaluate(`(() => ({
+    menuGone: !document.querySelector(".menubar"),
+    dropOverlayHidden: document.querySelector("#drop-overlay")?.hidden,
+    queuedSelectorGone: !document.querySelector("#sample"),
+    groupLevelValue: document.querySelector("#group-level")?.value,
+    groupSliderValue: document.querySelector("#group-level-slider")?.dataset.value,
+    groupSliderSelected: document.querySelector("[data-group-level='page']")?.getAttribute("aria-checked"),
+    themeButtonPreference: document.querySelector("#theme-button")?.dataset.themePreference,
+    themeButtonText: document.querySelector("#theme-button-label")?.textContent,
+  }))()`);
+  if (!initialUi.menuGone || initialUi.dropOverlayHidden !== true || !initialUi.queuedSelectorGone || initialUi.groupLevelValue !== "page" || initialUi.groupSliderValue !== "page" || initialUi.groupSliderSelected !== "true" || initialUi.themeButtonPreference !== "system" || initialUi.themeButtonText !== "Theme: System") {
+    throw new Error(`Initial UI chrome was wrong: ${JSON.stringify(initialUi)}`);
+  }
+
+  const koreanLanguage = await client.evaluate(`(async () => {
+    const state = await window.__HWP_SINGLE_HTML_TEST__.setLanguage("ko");
+    return {
+      ...state,
+      htmlLang: document.documentElement.lang,
+      searchButton: document.querySelector("#search-button")?.textContent,
+      searchPlaceholder: document.querySelector("#search")?.getAttribute("placeholder"),
+      status: document.querySelector("#status")?.textContent,
+      summary: document.querySelector("#summary")?.textContent,
+      groupLabel: document.querySelector("label[for='group-level']")?.textContent,
+    };
+  })()`);
+  if (koreanLanguage.language !== "ko" || koreanLanguage.htmlLang !== "ko" || koreanLanguage.searchButton !== "검색" || koreanLanguage.searchPlaceholder !== "검색어" || koreanLanguage.status !== "준비됨" || koreanLanguage.summary !== "대기 중" || koreanLanguage.groupLabel !== "그룹 단계") {
+    throw new Error(`Korean language did not apply: ${JSON.stringify(koreanLanguage)}`);
+  }
+  const englishLanguage = await client.evaluate(`(async () => {
+    const state = await window.__HWP_SINGLE_HTML_TEST__.setLanguage("en");
+    return {
+      ...state,
+      htmlLang: document.documentElement.lang,
+      searchButton: document.querySelector("#search-button")?.textContent,
+      searchPlaceholder: document.querySelector("#search")?.getAttribute("placeholder"),
+      status: document.querySelector("#status")?.textContent,
+      summary: document.querySelector("#summary")?.textContent,
+    };
+  })()`);
+  if (englishLanguage.language !== "en" || englishLanguage.htmlLang !== "en" || englishLanguage.searchButton !== "Search" || englishLanguage.searchPlaceholder !== "Search text" || englishLanguage.status !== "Ready" || englishLanguage.summary !== "Idle") {
+    throw new Error(`English language did not restore: ${JSON.stringify(englishLanguage)}`);
+  }
+
+  const themeButtonCycle = await client.evaluate(`(() => {
+    const button = document.querySelector("#theme-button");
+    const select = document.querySelector("#theme-select");
+    button.click();
+    const light = {
+      preference: window.__HWP_SINGLE_HTML_TEST__.state().themePreference,
+      selectValue: select?.value,
+      buttonPreference: button?.dataset.themePreference,
+      buttonText: document.querySelector("#theme-button-label")?.textContent,
+    };
+    button.click();
+    const dark = {
+      preference: window.__HWP_SINGLE_HTML_TEST__.state().themePreference,
+      selectValue: select?.value,
+      buttonPreference: button?.dataset.themePreference,
+      buttonText: document.querySelector("#theme-button-label")?.textContent,
+    };
+    button.click();
+    const system = {
+      preference: window.__HWP_SINGLE_HTML_TEST__.state().themePreference,
+      selectValue: select?.value,
+      buttonPreference: button?.dataset.themePreference,
+      buttonText: document.querySelector("#theme-button-label")?.textContent,
+    };
+    return { light, dark, system };
+  })()`);
+  if (themeButtonCycle.light.preference !== "light" || themeButtonCycle.light.selectValue !== "light" || themeButtonCycle.light.buttonPreference !== "light" || themeButtonCycle.light.buttonText !== "Theme: Light") {
+    throw new Error(`Theme button did not switch to light: ${JSON.stringify(themeButtonCycle)}`);
+  }
+  if (themeButtonCycle.dark.preference !== "dark" || themeButtonCycle.dark.selectValue !== "dark" || themeButtonCycle.dark.buttonPreference !== "dark" || themeButtonCycle.dark.buttonText !== "Theme: Dark") {
+    throw new Error(`Theme button did not switch to dark: ${JSON.stringify(themeButtonCycle)}`);
+  }
+  if (themeButtonCycle.system.preference !== "system" || themeButtonCycle.system.selectValue !== "system" || themeButtonCycle.system.buttonPreference !== "system" || themeButtonCycle.system.buttonText !== "Theme: System") {
+    throw new Error(`Theme button did not switch to system: ${JSON.stringify(themeButtonCycle)}`);
+  }
+
+  const darkTheme = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.setTheme("dark")`);
+  if (darkTheme.themePreference !== "dark" || darkTheme.theme !== "dark") {
+    throw new Error(`Dark theme did not apply: ${JSON.stringify(darkTheme)}`);
+  }
+  const lightTheme = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.setTheme("light")`);
+  if (lightTheme.themePreference !== "light" || lightTheme.theme !== "light") {
+    throw new Error(`Light theme did not apply: ${JSON.stringify(lightTheme)}`);
+  }
+  await client.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value: "dark" }],
+  });
+  const systemDarkTheme = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.setTheme("system")`);
+  if (systemDarkTheme.themePreference !== "system" || systemDarkTheme.theme !== "dark") {
+    throw new Error(`System dark theme did not apply: ${JSON.stringify(systemDarkTheme)}`);
+  }
+  await client.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value: "light" }],
+  });
+  const systemTheme = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.setTheme("system")`);
+  if (systemTheme.themePreference !== "system" || systemTheme.theme !== "light") {
+    throw new Error(`System theme did not apply: ${JSON.stringify(systemTheme)}`);
+  }
+
+  const virtualFiles = [
+    {
+      name: "local-line.hwp",
+      relativePath: "contracts/2026/local-line.hwp",
+      base64: await readFile(path.resolve("samples/rhwp/lseg-01-basic.hwp"), "base64"),
+    },
+    {
+      name: "local-ref.hwpx",
+      relativePath: "contracts/references/local-ref.hwpx",
+      base64: await readFile(path.resolve("samples/rhwp/ref_text.hwpx"), "base64"),
+    },
+  ];
+  const dragUi = await client.evaluate(`(() => {
+    const app = document.querySelector(".app-window");
+    const overlay = document.querySelector("#drop-overlay");
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File(["x"], "x.hwp"));
+    app.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer }));
+    const shown = overlay && !overlay.hidden;
+    app.dispatchEvent(new DragEvent("dragleave", { bubbles: true, cancelable: true, dataTransfer }));
+    return {
+      shown,
+      hiddenAfterLeave: overlay?.hidden,
+    };
+  })()`);
+  if (!dragUi.shown || dragUi.hiddenAfterLeave !== true) {
+    throw new Error(`Drag overlay did not toggle correctly: ${JSON.stringify(dragUi)}`);
+  }
+
+  const folderResult = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(virtualFiles)})`);
+  if (folderResult.localCount !== 2 || folderResult.documentCount !== 2 || folderResult.scanErrors !== 0 || folderResult.searchResultCount !== 0) {
+    throw new Error(`Drag/drop import failed: ${JSON.stringify(folderResult)}`);
+  }
+  if (folderResult.samples.some((sample) => sample.loaded !== false)) {
+    throw new Error(`Drag/drop import parsed documents before search: ${JSON.stringify(folderResult)}`);
+  }
+
+  const hwpxSearchState = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("\\uC548\\uB155")`);
+  if (hwpxSearchState.workerCount < 1 || hwpxSearchState.searchResultCount < 1 || !hwpxSearchState.results.some((result) => result.path.includes("local-ref.hwpx"))) {
+    throw new Error(`HWPX search state was wrong: ${JSON.stringify(hwpxSearchState)}`);
+  }
+
+  const recursiveSearchState = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("\\uBB38")`);
+  if (recursiveSearchState.workerCount < 2 || recursiveSearchState.searchResultCount < 1 || recursiveSearchState.totalMatches < 2 || recursiveSearchState.scanErrors !== 0) {
+    throw new Error(`HWP search state was wrong: ${JSON.stringify(recursiveSearchState)}`);
+  }
+
+  const recursiveSearch = await client.evaluate(`(() => {
+    return {
+      resultCards: document.querySelectorAll(".result-card").length,
+      marked: document.querySelectorAll("mark").length,
+      summary: document.querySelector("#summary")?.textContent,
+      status: document.querySelector("#status")?.textContent,
+      docs: document.querySelector("#metric-docs")?.textContent,
+      scanned: document.querySelector("#metric-scanned")?.textContent,
+      matches: document.querySelector("#metric-matches")?.textContent,
+      workers: document.querySelector("#metric-workers")?.textContent,
+      pageRows: document.querySelectorAll(".page-match-row").length,
+      occurrenceRows: document.querySelectorAll(".occurrence-row").length,
+      groupLevel: document.querySelector("#group-level")?.value,
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      fileState: document.querySelector("#file-state")?.textContent,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+      hasLocalPath: [...document.querySelectorAll(".result-name")]
+        .some((node) => node.textContent.includes("contracts/2026/local-line.hwp")),
+    };
+  })()`);
+
+  if (recursiveSearch.status !== "Ready" || recursiveSearch.docs !== "2" || recursiveSearch.scanned !== "2" || Number(recursiveSearch.workers) < 2) {
+    throw new Error(`Search metrics/status were wrong: ${JSON.stringify(recursiveSearch)}`);
+  }
+  if (recursiveSearch.resultCards < 1 || recursiveSearch.pageRows < 1 || recursiveSearch.occurrenceRows !== 0 || recursiveSearch.groupLevel !== "page" || recursiveSearch.previewOpen || recursiveSearch.hasSvg || !recursiveSearch.hasLocalPath) {
+    throw new Error(`Recursive search did not group imported nested files by page: ${JSON.stringify(recursiveSearch)}`);
+  }
+
+  const fileLevel = await client.evaluate(`(() => {
+    const select = document.querySelector("#group-level");
+    select.value = "file";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const title = document.querySelector(".result-title");
+    const pageList = document.querySelector(".page-match-list");
+    return {
+      value: select.value,
+      sliderValue: document.querySelector("#group-level-slider")?.dataset.value,
+      sliderChecked: document.querySelector("[data-group-level='file']")?.getAttribute("aria-checked"),
+      expanded: title?.getAttribute("aria-expanded"),
+      pageListHidden: pageList?.hidden,
+      pageListDisplay: pageList ? getComputedStyle(pageList).display : "",
+      occurrenceRows: document.querySelectorAll(".occurrence-row").length,
+    };
+  })()`);
+
+  if (fileLevel.value !== "file" || fileLevel.sliderValue !== "file" || fileLevel.sliderChecked !== "true" || fileLevel.expanded !== "false" || fileLevel.pageListHidden !== true || fileLevel.pageListDisplay !== "none" || fileLevel.occurrenceRows !== 0) {
+    throw new Error(`File-level grouping did not collapse result groups: ${JSON.stringify(fileLevel)}`);
+  }
+
+  const detailLevel = await client.evaluate(`(() => {
+    document.querySelector("[data-group-level='detail']")?.click();
+    const select = document.querySelector("#group-level");
+    const title = document.querySelector(".result-title");
+    const row = document.querySelector(".page-match-row");
+    const detail = document.querySelector(".page-match-detail");
+    return {
+      value: select.value,
+      sliderValue: document.querySelector("#group-level-slider")?.dataset.value,
+      sliderChecked: document.querySelector("[data-group-level='detail']")?.getAttribute("aria-checked"),
+      titleExpanded: title?.getAttribute("aria-expanded"),
+      pageExpanded: row?.getAttribute("aria-expanded"),
+      detailHidden: detail?.hidden,
+      detailDisplay: detail ? getComputedStyle(detail).display : "",
+      occurrenceRows: document.querySelectorAll(".occurrence-row").length,
+      matches: document.querySelector("#metric-matches")?.textContent,
+    };
+  })()`);
+
+  if (detailLevel.value !== "detail" || detailLevel.sliderValue !== "detail" || detailLevel.sliderChecked !== "true" || detailLevel.titleExpanded !== "true" || detailLevel.pageExpanded !== "true" || detailLevel.detailHidden !== false || detailLevel.detailDisplay === "none" || detailLevel.occurrenceRows !== Number(detailLevel.matches)) {
+    throw new Error(`Detail-level grouping did not open snippets: ${JSON.stringify(detailLevel)}`);
+  }
+
+  await client.evaluate(`(() => {
+    document.querySelector("[data-group-level='page']")?.click();
+  })()`);
+
+  const collapsedGroup = await client.evaluate(`(() => {
+    const group = document.querySelector(".result-title");
+    const pageList = document.querySelector(".page-match-list");
+    group?.click();
+    const collapsed = {
+      expanded: group?.getAttribute("aria-expanded"),
+      pageListHidden: pageList?.hidden,
+      pageListDisplay: pageList ? getComputedStyle(pageList).display : "",
+    };
+    group?.click();
+    collapsed.expandedAfterReopen = group?.getAttribute("aria-expanded");
+    collapsed.pageListHiddenAfterReopen = pageList?.hidden;
+    collapsed.pageListDisplayAfterReopen = pageList ? getComputedStyle(pageList).display : "";
+    return collapsed;
+  })()`);
+
+  if (collapsedGroup.expanded !== "false" || collapsedGroup.pageListHidden !== true || collapsedGroup.pageListDisplay !== "none" || collapsedGroup.expandedAfterReopen !== "true" || collapsedGroup.pageListHiddenAfterReopen !== false || collapsedGroup.pageListDisplayAfterReopen === "none") {
+    throw new Error(`Result group did not collapse and reopen correctly: ${JSON.stringify(collapsedGroup)}`);
+  }
+
+  const expandedSearch = await client.evaluate(`(() => {
+    document.querySelector(".page-match-row")?.click();
+    return {
+      marked: document.querySelectorAll("mark").length,
+      occurrenceRows: document.querySelectorAll(".occurrence-row").length,
+      matches: document.querySelector("#metric-matches")?.textContent,
+      expanded: document.querySelector(".page-match-row")?.getAttribute("aria-expanded"),
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+    };
+  })()`);
+
+  if (expandedSearch.expanded !== "true" || expandedSearch.occurrenceRows !== Number(expandedSearch.matches) || expandedSearch.marked < 1 || expandedSearch.previewOpen || expandedSearch.hasSvg) {
+    throw new Error(`Page match details did not expand correctly: ${JSON.stringify(expandedSearch)}`);
+  }
+
+  const collapsedPage = await client.evaluate(`(() => {
+    const row = document.querySelector(".page-match-row");
+    const detail = document.querySelector(".page-match-detail");
+    row?.click();
+    return {
+      expanded: row?.getAttribute("aria-expanded"),
+      detailHidden: detail?.hidden,
+      detailDisplay: detail ? getComputedStyle(detail).display : "",
+      occurrenceRows: document.querySelectorAll(".occurrence-row").length,
+      marked: document.querySelectorAll("mark").length,
+    };
+  })()`);
+
+  if (collapsedPage.expanded !== "false" || collapsedPage.detailHidden !== true || collapsedPage.detailDisplay !== "none" || collapsedPage.occurrenceRows !== Number(expandedSearch.matches) || collapsedPage.marked < 1) {
+    throw new Error(`Expanded page details did not visually collapse: ${JSON.stringify(collapsedPage)}`);
+  }
+
+  const reopenedPage = await client.evaluate(`(() => {
+    const row = document.querySelector(".page-match-row");
+    const detail = document.querySelector(".page-match-detail");
+    row?.click();
+    return {
+      expanded: row?.getAttribute("aria-expanded"),
+      detailHidden: detail?.hidden,
+      detailDisplay: detail ? getComputedStyle(detail).display : "",
+    };
+  })()`);
+
+  if (reopenedPage.expanded !== "true" || reopenedPage.detailHidden !== false || reopenedPage.detailDisplay === "none") {
+    throw new Error(`Collapsed page details did not reopen: ${JSON.stringify(reopenedPage)}`);
+  }
+
+  const openedPreview = await client.evaluate(`(async () => {
+    await window.__HWP_SINGLE_HTML_TEST__.setTheme("dark");
+    const expectedHighlights = Number(/\\d+/.exec(document.querySelector(".page-match-count")?.textContent || "")?.[0] || 0);
+    document.querySelector(".occurrence-row")?.click();
+    const started = Date.now();
+    while (Date.now() - started < 5000) {
+      const svg = document.querySelector("#page svg");
+      if (!document.querySelector("#preview-overlay")?.hidden && svg) {
+        const highlight = document.querySelector(".hwp-document-highlight");
+        const highlightStyle = highlight ? getComputedStyle(highlight) : null;
+        return {
+          previewOpen: true,
+          hasSvg: true,
+          highlights: document.querySelectorAll(".hwp-document-highlight").length,
+          highlightLayerOnTop: svg.lastElementChild?.classList.contains("hwp-document-highlights"),
+          documentFilter: getComputedStyle(svg).filter,
+          highlightAnimation: highlightStyle?.animationName,
+          highlightAnimationDuration: highlightStyle?.animationDuration,
+          expectedHighlights,
+          title: document.querySelector("#viewer-title")?.textContent,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return {
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+      highlights: document.querySelectorAll(".hwp-document-highlight").length,
+      highlightLayerOnTop: document.querySelector("#page svg")?.lastElementChild?.classList.contains("hwp-document-highlights"),
+      documentFilter: document.querySelector("#page svg") ? getComputedStyle(document.querySelector("#page svg")).filter : "",
+      highlightAnimation: document.querySelector(".hwp-document-highlight") ? getComputedStyle(document.querySelector(".hwp-document-highlight")).animationName : "",
+      highlightAnimationDuration: document.querySelector(".hwp-document-highlight") ? getComputedStyle(document.querySelector(".hwp-document-highlight")).animationDuration : "",
+      expectedHighlights,
+      title: document.querySelector("#viewer-title")?.textContent,
+    };
+  })()`);
+
+  if (!openedPreview.previewOpen || !openedPreview.hasSvg || openedPreview.highlights < Math.max(1, openedPreview.expectedHighlights) || openedPreview.highlightLayerOnTop !== true || openedPreview.documentFilter === "none" || openedPreview.highlightAnimation === "none" || openedPreview.highlightAnimationDuration === "0s" || !openedPreview.title?.includes("page")) {
+    throw new Error(`Detail click did not open preview popup: ${JSON.stringify(openedPreview)}`);
+  }
+
+  const closedByButton = await client.evaluate(`(() => {
+    document.querySelector("#preview-close")?.click();
+    return {
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+    };
+  })()`);
+
+  if (closedByButton.previewOpen || closedByButton.hasSvg) {
+    throw new Error(`Preview popup did not close from button: ${JSON.stringify(closedByButton)}`);
+  }
+
+  const closedByOutside = await client.evaluate(`(async () => {
+    document.querySelector(".occurrence-row")?.click();
+    const started = Date.now();
+    while (Date.now() - started < 5000 && (document.querySelector("#preview-overlay")?.hidden || !document.querySelector("#page svg"))) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    document.querySelector("#preview-overlay")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    return {
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+    };
+  })()`);
+
+  if (closedByOutside.previewOpen || closedByOutside.hasSvg) {
+    throw new Error(`Preview popup did not close from outside click: ${JSON.stringify(closedByOutside)}`);
+  }
+
+  const denseFiles = [
+    {
+      name: "dense-eng.hwp",
+      relativePath: "dense/dense-eng.hwp",
+      base64: await readFile(path.resolve("samples/rhwp-upstream/samples/exam_eng.hwp"), "base64"),
+    },
+  ];
+  const denseImport = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(denseFiles)})`);
+  if (denseImport.localCount !== 1 || denseImport.documentCount !== 1 || denseImport.searchResultCount !== 0) {
+    throw new Error(`Dense fixture import failed: ${JSON.stringify(denseImport)}`);
+  }
+
+  const denseSearchState = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("the")`);
+  if (denseSearchState.searchResultCount !== 1 || denseSearchState.totalMatches < 100) {
+    throw new Error(`Dense page search did not find enough matches: ${JSON.stringify(denseSearchState)}`);
+  }
+
+  const densePreview = await client.evaluate(`(async () => {
+    const rows = [...document.querySelectorAll(".page-match-row")];
+    const target = rows
+      .map((row) => ({
+        row,
+        count: Number(/\\d+/.exec(row.querySelector(".page-match-count")?.textContent || "")?.[0] || 0),
+      }))
+      .find((item) => item.count >= 30);
+    if (!target) {
+      return { foundDensePage: false, expectedHighlights: 0, highlights: 0, previewOpen: false, hasSvg: false };
+    }
+    if (target.row.getAttribute("aria-expanded") !== "true") {
+      target.row.click();
+    }
+    target.row.nextElementSibling?.querySelector(".occurrence-row")?.click();
+    const started = Date.now();
+    while (Date.now() - started < 8000) {
+      const svg = document.querySelector("#page svg");
+      if (!document.querySelector("#preview-overlay")?.hidden && svg) {
+        return {
+          foundDensePage: true,
+          expectedHighlights: target.count,
+          highlights: document.querySelectorAll(".hwp-document-highlight").length,
+          highlightLayerOnTop: svg.lastElementChild?.classList.contains("hwp-document-highlights"),
+          previewOpen: true,
+          hasSvg: true,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return {
+      foundDensePage: true,
+      expectedHighlights: target.count,
+      highlights: document.querySelectorAll(".hwp-document-highlight").length,
+      highlightLayerOnTop: document.querySelector("#page svg")?.lastElementChild?.classList.contains("hwp-document-highlights"),
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+    };
+  })()`);
+
+  if (!densePreview.foundDensePage || !densePreview.previewOpen || !densePreview.hasSvg || densePreview.highlights < densePreview.expectedHighlights || densePreview.highlightLayerOnTop !== true) {
+    throw new Error(`Dense page preview did not highlight every visible match: ${JSON.stringify(densePreview)}`);
+  }
+
+  const kpsFiles = [
+    {
+      name: "kps-ai.hwp",
+      relativePath: "samples/rhwp-upstream/rhwp-studio/public/samples/kps-ai.hwp",
+      base64: await readFile(path.resolve("samples/rhwp-upstream/rhwp-studio/public/samples/kps-ai.hwp"), "base64"),
+    },
+  ];
+  const kpsImport = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(kpsFiles)})`);
+  if (kpsImport.localCount !== 1 || kpsImport.documentCount !== 1 || kpsImport.searchResultCount !== 0) {
+    throw new Error(`KPS fixture import failed: ${JSON.stringify(kpsImport)}`);
+  }
+
+  const kpsSearchState = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("aa")`);
+  if (kpsSearchState.searchResultCount !== 1 || kpsSearchState.totalMatches !== 16) {
+    throw new Error(`KPS aa search did not find the expected matches: ${JSON.stringify(kpsSearchState)}`);
+  }
+
+  const kpsPreview = await client.evaluate(`(async () => {
+    const rows = [...document.querySelectorAll(".page-match-row")];
+    const target = rows
+      .map((row) => ({
+        row,
+        label: row.querySelector(".page-match-page")?.textContent || "",
+        count: Number(/\\d+/.exec(row.querySelector(".page-match-count")?.textContent || "")?.[0] || 0),
+      }))
+      .find((item) => item.label.trim() === "page 47");
+    if (!target) {
+      return { foundPage47: false, expectedHighlights: 0, highlights: 0, previewOpen: false, hasSvg: false };
+    }
+    if (target.row.getAttribute("aria-expanded") !== "true") {
+      target.row.click();
+    }
+    target.row.nextElementSibling?.querySelector(".occurrence-row")?.click();
+    const started = Date.now();
+    while (Date.now() - started < 8000) {
+      const svg = document.querySelector("#page svg");
+      if (!document.querySelector("#preview-overlay")?.hidden && svg) {
+        return {
+          foundPage47: true,
+          expectedHighlights: target.count,
+          highlights: document.querySelectorAll(".hwp-document-highlight").length,
+          highlightLayerOnTop: svg.lastElementChild?.classList.contains("hwp-document-highlights"),
+          previewOpen: true,
+          hasSvg: true,
+          title: document.querySelector("#viewer-title")?.textContent,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return {
+      foundPage47: true,
+      expectedHighlights: target.count,
+      highlights: document.querySelectorAll(".hwp-document-highlight").length,
+      highlightLayerOnTop: document.querySelector("#page svg")?.lastElementChild?.classList.contains("hwp-document-highlights"),
+      previewOpen: !document.querySelector("#preview-overlay")?.hidden,
+      hasSvg: Boolean(document.querySelector("#page svg")),
+      title: document.querySelector("#viewer-title")?.textContent,
+    };
+  })()`);
+
+  if (!kpsPreview.foundPage47 || !kpsPreview.previewOpen || !kpsPreview.hasSvg || kpsPreview.expectedHighlights !== 8 || kpsPreview.highlights !== 8 || kpsPreview.highlightLayerOnTop !== true || !kpsPreview.title?.includes("page 47 of 78")) {
+    throw new Error(`KPS page 47 preview did not show visible highlight layer: ${JSON.stringify(kpsPreview)}`);
+  }
+
+  console.log(`Headless Chrome verified ${path.relative(process.cwd(), htmlPath)}: ${recursiveSearch.summary}`);
+  await client.close();
+} finally {
+  chrome.kill("SIGTERM");
+  await new Promise((resolve) => chrome.once("exit", resolve));
+  await rm(userDataDir, { recursive: true, force: true });
+}
+
+function findChrome() {
+  const candidates = [
+    process.env.CHROME_BIN,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate.includes("/")) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+async function getFreePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : undefined;
+      server.close(() => {
+        if (port) {
+          resolve(port);
+        } else {
+          reject(new Error("Could not allocate a local port"));
+        }
+      });
+    });
+  });
+}
+
+async function waitForPage(port) {
+  const deadline = Date.now() + 15000;
+  let lastError;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const pages = await response.json();
+      const page = pages.find((item) => item.type === "page" && item.webSocketDebuggerUrl);
+      if (page) {
+        return page;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(150);
+  }
+
+  throw new Error(`Timed out waiting for Chrome DevTools. ${lastError ? String(lastError) : ""}\n${stderr}`);
+}
+
+async function waitForReady(client) {
+  const deadline = Date.now() + 20000;
+
+  while (Date.now() < deadline) {
+    const value = await client.evaluate("window.__HWP_SINGLE_HTML_READY__ || null");
+    if (value) {
+      return value;
+    }
+    await delay(250);
+  }
+
+  throw new Error(`Timed out waiting for the single HTML app to initialize${client.diagnostics()}`);
+}
+
+function connectCdp(url) {
+  const ws = new WebSocket(url);
+  let id = 0;
+  const callbacks = new Map();
+  const events = [];
+
+  ws.addEventListener("message", (event) => {
+    const message = JSON.parse(event.data);
+    if (message.id && callbacks.has(message.id)) {
+      const { resolve, reject } = callbacks.get(message.id);
+      callbacks.delete(message.id);
+      if (message.error) {
+        reject(new Error(message.error.message));
+      } else {
+        resolve(message.result);
+      }
+      return;
+    }
+
+    if (message.method === "Runtime.exceptionThrown") {
+      const details = message.params?.exceptionDetails;
+      const location = [
+        details?.url,
+        Number.isInteger(details?.lineNumber) ? details.lineNumber + 1 : undefined,
+        Number.isInteger(details?.columnNumber) ? details.columnNumber + 1 : undefined,
+      ].filter(Boolean).join(":");
+      events.push(`${details?.exception?.description || details?.text || "Runtime exception"}${location ? ` @ ${location}` : ""}`);
+    } else if (message.method === "Log.entryAdded") {
+      const entry = message.params?.entry;
+      events.push([entry?.level, entry?.text].filter(Boolean).join(": "));
+    } else if (message.method === "Runtime.consoleAPICalled") {
+      const args = message.params?.args || [];
+      events.push(args.map((arg) => arg.value ?? arg.description ?? "").join(" "));
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    ws.addEventListener("open", () => {
+      resolve({
+        send(method, params = {}) {
+          const messageId = ++id;
+          ws.send(JSON.stringify({ id: messageId, method, params }));
+          return new Promise((innerResolve, innerReject) => {
+            callbacks.set(messageId, { resolve: innerResolve, reject: innerReject });
+          });
+        },
+        async evaluate(expression) {
+          const result = await this.send("Runtime.evaluate", {
+            expression,
+            awaitPromise: true,
+            returnByValue: true,
+          });
+          if (result.exceptionDetails) {
+            throw new Error(result.exceptionDetails.text ?? "Runtime evaluation failed");
+          }
+          return result.result.value;
+        },
+        close() {
+          ws.close();
+        },
+        diagnostics() {
+          if (events.length === 0) {
+            return "";
+          }
+          return `\nBrowser diagnostics:\n${events.slice(-8).join("\n")}`;
+        },
+      });
+    });
+    ws.addEventListener("error", reject);
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

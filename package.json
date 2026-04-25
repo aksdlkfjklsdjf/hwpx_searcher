@@ -1,0 +1,28 @@
+{
+  "name": "hwp-recursive-search",
+  "version": "0.1.0",
+  "description": "Recursive HWP/HWPX text search CLI powered by @rhwp/core.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "hwp-search": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "samples:fetch": "node scripts/fetch-rhwp-samples.mjs",
+    "html:build": "node scripts/build-single-html.mjs",
+    "html:test": "npm run html:build && node scripts/test-single-html.mjs",
+    "test": "npm run build && node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@rhwp/core": "^0.7.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

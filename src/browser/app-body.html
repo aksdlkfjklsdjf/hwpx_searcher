@@ -1,0 +1,106 @@
+<main>
+  <section class="app-window" aria-label="HWP search application" data-i18n-aria-label="app.aria">
+    <header class="titlebar">
+      <div>
+        <h1 data-i18n="app.title">HWP Search</h1>
+        <div class="subhead"><span id="source-count" class="source-count">0 queued</span><span data-i18n="app.subtitle">HWP/HWPX content search</span></div>
+      </div>
+      <div class="title-actions">
+        <select id="language-select" class="language-select" aria-label="Language" data-i18n-aria-label="language.aria">
+          <option value="en" data-i18n="language.en">English</option>
+          <option value="ko" data-i18n="language.ko">Korean</option>
+        </select>
+        <select id="theme-select" class="visually-hidden-select" aria-label="Theme" data-i18n-aria-label="theme.aria">
+          <option value="system" data-i18n="theme.system">Theme: System</option>
+          <option value="light" data-i18n="theme.light">Theme: Light</option>
+          <option value="dark" data-i18n="theme.dark">Theme: Dark</option>
+        </select>
+        <button id="theme-button" class="theme-button" type="button" aria-label="Theme" data-i18n-aria-label="theme.aria" data-theme-preference="system">
+          <span class="theme-button-glyph" aria-hidden="true"></span>
+          <span id="theme-button-label" class="theme-button-label">Theme: System</span>
+        </button>
+        <div id="status" class="status" data-state="busy" data-i18n="status.loading">Loading</div>
+      </div>
+    </header>
+
+    <section class="search-strip" aria-label="Search controls" data-i18n-aria-label="search.aria">
+      <input id="search" type="search" autocomplete="off" spellcheck="false" placeholder="Search text" aria-label="Search text" data-i18n-placeholder="search.placeholder" data-i18n-aria-label="search.label">
+      <button id="search-button" type="button" data-i18n="search.button">Search</button>
+      <label><input id="case" type="checkbox"> <span data-i18n="search.caseSensitive">Case sensitive</span></label>
+    </section>
+
+    <section class="workspace">
+      <aside class="filter-panel">
+        <div class="filter-group">
+          <h2 data-i18n="panel.index">Index</h2>
+          <div class="file-controls">
+            <label for="folder-input" class="file-button" data-i18n="index.chooseFolder">Choose folder</label>
+            <input id="folder-input" class="file-input" type="file" multiple webkitdirectory directory accept=".hwp,.hwpx">
+            <span id="file-state" class="file-state" data-i18n="index.noFolder">No folder</span>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <h2 data-i18n="panel.filters">Filters</h2>
+          <label class="check-row"><input id="filter-hwp" type="checkbox" checked> <span data-i18n="filter.hwp">HWP files</span></label>
+          <label class="check-row"><input id="filter-hwpx" type="checkbox" checked> <span data-i18n="filter.hwpx">HWPX files</span></label>
+          <label class="field-label" for="path-filter" data-i18n="filter.location">Location contains</label>
+          <input id="path-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Folder or filename" data-i18n-placeholder="filter.locationPlaceholder">
+        </div>
+
+            <div class="filter-group">
+              <h2 data-i18n="panel.options">Options</h2>
+              <label id="group-level-label" class="field-label" for="group-level" data-i18n="option.groupLevel">Group level</label>
+              <select id="group-level" class="visually-hidden-select" aria-label="Default result group level" data-i18n-aria-label="option.groupLevelAria">
+                <option value="file" data-i18n="option.fileGroups">File groups</option>
+                <option value="page" selected data-i18n="option.pageGroups">Page groups</option>
+                <option value="detail" data-i18n="option.detailRows">Detail rows</option>
+              </select>
+              <div id="group-level-slider" class="segmented-slider" role="radiogroup" aria-labelledby="group-level-label" data-value="page">
+                <span class="segmented-slider-thumb" aria-hidden="true"></span>
+                <button type="button" class="segmented-slider-option" role="radio" aria-checked="false" data-group-level="file" data-i18n="option.fileGroups">File groups</button>
+                <button type="button" class="segmented-slider-option" role="radio" aria-checked="true" data-group-level="page" data-i18n="option.pageGroups">Page groups</button>
+                <button type="button" class="segmented-slider-option" role="radio" aria-checked="false" data-group-level="detail" data-i18n="option.detailRows">Detail rows</button>
+              </div>
+              <label class="field-label" for="worker-count" data-i18n="option.workers">Workers</label>
+              <select id="worker-count" aria-label="Worker count" data-i18n-aria-label="option.workerCountAria"></select>
+        </div>
+
+        <div class="filter-group">
+          <h2 data-i18n="panel.status">Status</h2>
+          <section class="metrics" aria-label="Search metrics" data-i18n-aria-label="metric.aria">
+            <div class="metric"><span class="metric-label" data-i18n="metric.queued">Queued</span><span id="metric-docs" class="metric-value">0</span></div>
+            <div class="metric"><span class="metric-label" data-i18n="metric.scanned">Scanned</span><span id="metric-scanned" class="metric-value">0</span></div>
+            <div class="metric"><span class="metric-label" data-i18n="metric.matches">Matches</span><span id="metric-matches" class="metric-value">0</span></div>
+            <div class="metric"><span class="metric-label" data-i18n="metric.workers">Workers</span><span id="metric-workers" class="metric-value">0</span></div>
+            <div class="metric"><span class="metric-label" data-i18n="metric.errors">Errors</span><span id="metric-errors" class="metric-value">0</span></div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="results-pane">
+          <div class="panel-head">
+            <h2 data-i18n="panel.results">Results</h2>
+            <div id="summary" class="summary" data-i18n="summary.idle">Idle</div>
+          </div>
+          <progress id="progress" value="0" max="1" hidden></progress>
+          <div id="results" class="result-list"></div>
+        </section>
+      </section>
+      <div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true">
+        <div class="drop-message" data-i18n="index.dropToIndex">Drop to index</div>
+      </div>
+    </section>
+    <div id="preview-overlay" class="preview-overlay" hidden>
+      <section class="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+        <div class="viewer-head">
+          <div class="viewer-meta">
+            <div id="viewer-title" class="viewer-title" data-i18n="preview.title">Preview</div>
+            <div id="viewer-source" class="viewer-source"></div>
+          </div>
+          <button id="preview-close" class="preview-close" type="button" aria-label="Close preview" data-i18n-aria-label="preview.close">&times;</button>
+        </div>
+        <div id="page" class="page"></div>
+      </section>
+    </div>
+</main>

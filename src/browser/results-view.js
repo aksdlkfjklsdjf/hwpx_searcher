@@ -1,0 +1,154 @@
+function renderResultList(query, caseSensitive) {
+  resultsEl.textContent = "";
+  const groupLevel = currentGroupLevel();
+  const filesOpen = groupLevel !== GROUP_LEVEL.file;
+  const detailsOpen = groupLevel === GROUP_LEVEL.detail;
+  for (const item of state.searchResults) {
+    const card = document.createElement("article");
+    card.className = "result-card";
+
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "result-title";
+    title.setAttribute("aria-expanded", String(filesOpen));
+
+    const disclosure = document.createElement("span");
+    disclosure.className = "result-disclosure";
+    disclosure.setAttribute("aria-hidden", "true");
+    disclosure.textContent = filesOpen ? "-" : "+";
+
+    const name = document.createElement("span");
+    name.className = "result-name";
+    name.textContent = item.name;
+
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = item.count + " " + displayResultFormat(item);
+
+    title.append(disclosure, name, badge);
+
+    const pageList = document.createElement("div");
+    pageList.className = "page-match-list";
+    pageList.hidden = !filesOpen;
+    title.addEventListener("click", () => {
+      const shouldOpen = pageList.hidden;
+      pageList.hidden = !shouldOpen;
+      title.setAttribute("aria-expanded", String(shouldOpen));
+      disclosure.textContent = shouldOpen ? "-" : "+";
+    });
+
+    for (const pageGroup of groupOccurrencesByPage(item.occurrences)) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "page-match-row";
+      row.setAttribute("aria-expanded", "false");
+
+      const page = document.createElement("span");
+      page.className = "page-match-page";
+      page.textContent = t("result.page", { page: pageGroup.page });
+
+      const count = document.createElement("span");
+      count.className = "page-match-count";
+      count.textContent = t("result.matchCount", { count: pageGroup.items.length });
+
+      const hint = document.createElement("span");
+      hint.className = "page-match-hint";
+      hint.textContent = t("result.showDetails");
+
+      const detail = document.createElement("div");
+      detail.className = "page-match-detail";
+      detail.hidden = true;
+
+      row.addEventListener("click", (event) => {
+        event.stopPropagation();
+        togglePageDetails(row, detail, hint, pageGroup, item, query, caseSensitive);
+      });
+
+      row.append(page, count, hint);
+      pageList.append(row, detail);
+      if (detailsOpen) {
+        setPageDetailsOpen(row, detail, hint, pageGroup, item, query, caseSensitive, true);
+      }
+    }
+
+    card.append(title, pageList);
+    resultsEl.append(card);
+  }
+}
+
+function currentGroupLevel() {
+  return Object.values(GROUP_LEVEL).includes(groupLevelEl.value) ? groupLevelEl.value : GROUP_LEVEL.page;
+}
+
+function groupOccurrencesByPage(occurrences) {
+  const grouped = new Map();
+  for (const occurrence of occurrences) {
+    if (!grouped.has(occurrence.page)) {
+      grouped.set(occurrence.page, []);
+    }
+    grouped.get(occurrence.page).push(occurrence);
+  }
+  return [...grouped.entries()].map(([page, items]) => ({ page, items }));
+}
+
+function togglePageDetails(row, detail, hint, pageGroup, item, query, caseSensitive) {
+  setPageDetailsOpen(row, detail, hint, pageGroup, item, query, caseSensitive, detail.hidden);
+}
+
+function setPageDetailsOpen(row, detail, hint, pageGroup, item, query, caseSensitive, shouldOpen) {
+  row.setAttribute("aria-expanded", String(shouldOpen));
+  detail.hidden = !shouldOpen;
+  hint.textContent = shouldOpen ? t("result.openDocument") : t("result.showDetails");
+  if (!shouldOpen || detail.childElementCount > 0) {
+    return;
+  }
+
+  pageGroup.items.forEach((occurrence, index) => {
+    const occurrenceRow = document.createElement("button");
+    occurrenceRow.type = "button";
+    occurrenceRow.className = "occurrence-row";
+    occurrenceRow.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void showResultPreview(item, pageGroup.page - 1);
+    });
+
+    const number = document.createElement("span");
+    number.className = "occurrence-index";
+    number.textContent = "#" + (index + 1);
+
+    const text = document.createElement("span");
+    text.className = "occurrence-text";
+    text.innerHTML = highlight(occurrence.snippet, query, caseSensitive);
+
+    occurrenceRow.append(number, text);
+    detail.append(occurrenceRow);
+  });
+}
+
+function displayResultFormat(item) {
+  if (item.source === "folder") {
+    return t("result.localFormat", { format: item.rawFormat || item.format.replace(/\s+·\s+local$/, "") });
+  }
+  return item.format;
+}
+
+function highlight(text, query, caseSensitive) {
+  const escapedText = escapeHtml(text);
+  const escapedQuery = escapeRegExp(escapeHtml(query));
+  const flags = caseSensitive ? "g" : "gi";
+  return escapedText.replace(new RegExp(escapedQuery, flags), (match) => `<mark>${match}</mark>`);
+}
+
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[char]));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
