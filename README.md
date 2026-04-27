@@ -53,7 +53,7 @@ open release/hwp-search.html
 
 The manual GitHub release workflow uploads that standalone HTML file directly, so release users do not need a zip or sibling WASM files.
 
-The app starts with no documents loaded. Folder selection or drag-and-drop queues nested `.hwp` and `.hwpx` files without parsing them first. Search runs through a bounded Web Worker pool, so multiple files can be scanned in parallel while only the active worker batch is opened in memory. The Auto worker setting uses about 50% of detected CPU threads, clamped to the number of matching documents.
+The app starts with no documents loaded. Folder selection or drag-and-drop queues nested `.hwp` and `.hwpx` files into IndexedDB without parsing them first, so large file sets do not stay attached to live `File` objects in memory. Search runs through a bounded Web Worker pool, so multiple files can be scanned in parallel while only the active worker batch is opened in memory. The Auto worker setting uses about 50% of detected CPU threads, clamped to the number of matching documents.
 
 The browser UI follows a desktop document-search workspace: search bar, filter/index rail, dense results pane, and popup document preview.
 Matches are grouped under collapsible file results, then by page. Selecting a page expands the snippets for that page; selecting a snippet opens the document page in a popup preview with animated color-changing keyword highlights in the rendered document. The popup closes from the X button, Escape, or an outside click.
@@ -84,6 +84,7 @@ Browser app source is split for maintainability, then inlined into the productio
 - `src/browser/search-core.js` - shared text extraction and match helpers used by the app and worker
 - `src/browser/wasm-loader.js` - rhwp WASM asset loading and `file://` fallback handling
 - `src/browser/worker-client.js` - main-thread Web Worker client/message protocol
+- `src/browser/file-store.js` - IndexedDB-backed local file storage for large imports
 - `src/browser/file-index.js` - local folder selection, drag/drop traversal, and file descriptors
 - `src/browser/results-view.js` - grouped result rendering, collapse state, and match snippets
 - `src/browser/preview-view.js` - document preview popup and page-level highlight overlays

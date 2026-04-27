@@ -27,6 +27,8 @@ const state = {
   sortField: "name",
   sortDirection: "asc",
   errorDetailsOpen: false,
+  fileStorage: "memory",
+  storedFileCount: 0,
   dragDepth: 0,
 };
 
@@ -741,6 +743,8 @@ function diagnosticState() {
     localCount: state.localDocuments.length,
     documentCount: state.documents.length,
     scanErrors: state.scanErrors.length,
+    fileStorage: state.fileStorage,
+    storedFileCount: state.storedFileCount,
     scanned: state.scanned,
     totalMatches: state.totalMatches,
     workerSupported: state.workerSupported,

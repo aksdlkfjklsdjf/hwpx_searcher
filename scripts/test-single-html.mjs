@@ -227,6 +227,9 @@ try {
   if (folderResult.localCount !== 2 || folderResult.documentCount !== 2 || folderResult.scanErrors !== 0 || folderResult.searchResultCount !== 0) {
     throw new Error(`Drag/drop import failed: ${JSON.stringify(folderResult)}`);
   }
+  if (folderResult.fileStorage !== "indexeddb" || folderResult.storedFileCount !== 2) {
+    throw new Error(`Drag/drop import did not use browser database storage: ${JSON.stringify(folderResult)}`);
+  }
   if (folderResult.samples.some((sample) => sample.loaded !== false)) {
     throw new Error(`Drag/drop import parsed documents before search: ${JSON.stringify(folderResult)}`);
   }

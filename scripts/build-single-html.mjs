@@ -20,7 +20,7 @@ const [rhwpJs, rhwpWasm, themeBootstrapJs, css, bodyHtml] = await Promise.all([
   readFile(path.join(browserDir, "hwp-search.css"), "utf8"),
   readFile(path.join(browserDir, "app-body.html"), "utf8"),
 ]);
-const appJs = await readBrowserBundle(["i18n.js", "search-core.js", "wasm-loader.js", "worker-client.js", "file-index.js", "results-view.js", "preview-view.js", "app.js"]);
+const appJs = await readBrowserBundle(["i18n.js", "search-core.js", "wasm-loader.js", "worker-client.js", "file-store.js", "file-index.js", "results-view.js", "preview-view.js", "app.js"]);
 const workerJs = await readBrowserBundle(["search-core.js", "search-worker.js"]);
 const payload = options.embedWasm
   ? {

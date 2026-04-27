@@ -1705,6 +1705,153 @@
       return { create };
     })();
 
+    // file-store.js
+    const BrowserFileStore = (() => {
+      const dbName = "hwp-recursive-search";
+      const storeName = "files";
+      const batchSize = 100;
+
+      async function replaceFiles(records) {
+        const db = await openDb();
+        try {
+          await clearStore(db);
+          const stored = [];
+
+          for (let start = 0; start < records.length; start += batchSize) {
+            const batch = records.slice(start, start + batchSize);
+            const storedBatch = [];
+            for (const record of batch) {
+              storedBatch.push({
+                id: record.id,
+                name: record.name,
+                label: record.label,
+                format: record.format,
+                path: record.path,
+                repoPath: record.repoPath,
+                source: record.source,
+                size: record.size,
+                lastModified: record.lastModified,
+                blob: await fileRecordBlob(record.file),
+              });
+            }
+
+            const tx = db.transaction(storeName, "readwrite");
+            const store = tx.objectStore(storeName);
+            for (const storedRecord of storedBatch) {
+              store.put(storedRecord);
+              stored.push(stripBlob(storedRecord));
+            }
+            await transactionDone(tx);
+            await yieldToBrowser();
+          }
+
+          return stored;
+        } finally {
+          db.close();
+        }
+      }
+
+      async function getBytes(id) {
+        const db = await openDb();
+        try {
+          const record = await requestResult(db.transaction(storeName, "readonly").objectStore(storeName).get(id));
+          if (!record?.blob) {
+            throw new Error("File is not available in browser database: " + id);
+          }
+          return new Uint8Array(await record.blob.arrayBuffer());
+        } finally {
+          db.close();
+        }
+      }
+
+      async function count() {
+        const db = await openDb();
+        try {
+          return await requestResult(db.transaction(storeName, "readonly").objectStore(storeName).count());
+        } finally {
+          db.close();
+        }
+      }
+
+      async function clear() {
+        const db = await openDb();
+        try {
+          await clearStore(db);
+        } finally {
+          db.close();
+        }
+      }
+
+      function isSupported() {
+        return typeof indexedDB !== "undefined" && typeof Blob !== "undefined";
+      }
+
+      function openDb() {
+        if (!isSupported()) {
+          return Promise.reject(new Error("IndexedDB is not available"));
+        }
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(dbName, 1);
+          request.addEventListener("upgradeneeded", () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(storeName)) {
+              db.createObjectStore(storeName, { keyPath: "id" });
+            }
+          });
+          request.addEventListener("success", () => resolve(request.result));
+          request.addEventListener("error", () => reject(request.error || new Error("Could not open IndexedDB")));
+        });
+      }
+
+      function clearStore(db) {
+        const tx = db.transaction(storeName, "readwrite");
+        tx.objectStore(storeName).clear();
+        return transactionDone(tx);
+      }
+
+      function transactionDone(tx) {
+        return new Promise((resolve, reject) => {
+          tx.addEventListener("complete", () => resolve());
+          tx.addEventListener("abort", () => reject(tx.error || new Error("IndexedDB transaction aborted")));
+          tx.addEventListener("error", () => reject(tx.error || new Error("IndexedDB transaction failed")));
+        });
+      }
+
+      function requestResult(request) {
+        return new Promise((resolve, reject) => {
+          request.addEventListener("success", () => resolve(request.result));
+          request.addEventListener("error", () => reject(request.error || new Error("IndexedDB request failed")));
+        });
+      }
+
+      async function fileRecordBlob(file) {
+        if (file instanceof Blob) {
+          return file;
+        }
+        if (file?.blob instanceof Blob) {
+          return file.blob;
+        }
+        return new Blob([await file.arrayBuffer()]);
+      }
+
+      function stripBlob(record) {
+        const { blob: _blob, ...metadata } = record;
+        return metadata;
+      }
+
+      function yieldToBrowser() {
+        return new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      return {
+        clear,
+        count,
+        getBytes,
+        isSupported,
+        replaceFiles,
+      };
+    })();
+
     // file-index.js
     function filesFromTestItems(items) {
       return items.map((item) => ({
@@ -1727,8 +1874,10 @@
       state.preview = null;
       state.scanned = 0;
       state.totalMatches = 0;
+      state.storedFileCount = 0;
 
       if (hwpFiles.length === 0) {
+        await clearStoredFiles();
         fileStateEl.textContent = t("index.noHwpFiles");
         syncDocuments();
         renderPreview();
@@ -1737,18 +1886,7 @@
         return;
       }
 
-      state.localDocuments = hwpFiles.map((file) => ({
-        id: "folder:" + filePathOf(file),
-        name: file.name,
-        label: filePathOf(file),
-        format: extensionOf(file.name).toUpperCase(),
-        path: filePathOf(file),
-        repoPath: filePathOf(file),
-        source: "folder",
-        size: file.size ?? 0,
-        lastModified: file.lastModified ?? 0,
-        getBytes: async () => new Uint8Array(await file.arrayBuffer()),
-      }));
+      state.localDocuments = await createDocumentDescriptors(hwpFiles);
 
       syncDocuments();
       setStatus("ready");
@@ -1885,6 +2023,74 @@
       });
     }
 
+    async function createDocumentDescriptors(files) {
+      const records = files.map((file) => ({
+        id: "folder:" + filePathOf(file),
+        name: file.name,
+        label: filePathOf(file),
+        format: extensionOf(file.name).toUpperCase(),
+        path: filePathOf(file),
+        repoPath: filePathOf(file),
+        source: "folder",
+        size: file.size ?? 0,
+        lastModified: file.lastModified ?? 0,
+        file,
+      }));
+
+      if (!BrowserFileStore.isSupported()) {
+        state.fileStorage = "memory";
+        state.storedFileCount = 0;
+        return records.map((record) => memoryDescriptor(record));
+      }
+
+      try {
+        const stored = await BrowserFileStore.replaceFiles(records);
+        state.fileStorage = "indexeddb";
+        state.storedFileCount = stored.length;
+        return stored.map((record) => indexedDbDescriptor(record));
+      } catch (error) {
+        state.fileStorage = "memory";
+        state.storedFileCount = 0;
+        state.scanErrors.push({
+          path: "indexeddb",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return records.map((record) => memoryDescriptor(record));
+      }
+    }
+
+    function indexedDbDescriptor(record) {
+      return {
+        ...record,
+        getBytes: async () => BrowserFileStore.getBytes(record.id),
+      };
+    }
+
+    function memoryDescriptor(record) {
+      const { file, ...metadata } = record;
+      return {
+        ...metadata,
+        getBytes: async () => new Uint8Array(await file.arrayBuffer()),
+      };
+    }
+
+    async function clearStoredFiles() {
+      if (!BrowserFileStore.isSupported()) {
+        state.fileStorage = "memory";
+        state.storedFileCount = 0;
+        return;
+      }
+
+      try {
+        await BrowserFileStore.clear();
+        state.fileStorage = "indexeddb";
+        state.storedFileCount = 0;
+      } catch {
+        state.fileStorage = "memory";
+        state.storedFileCount = 0;
+      }
+    }
+
     function fileWithRelativePath(file, relativePath) {
       if (!relativePath) {
         return file;
@@ -1894,6 +2100,7 @@
         size: file.size,
         lastModified: file.lastModified,
         webkitRelativePath: relativePath,
+        blob: file,
         arrayBuffer: () => file.arrayBuffer(),
       };
     }
@@ -2389,6 +2596,8 @@
       sortField: "name",
       sortDirection: "asc",
       errorDetailsOpen: false,
+      fileStorage: "memory",
+      storedFileCount: 0,
       dragDepth: 0,
     };
 
@@ -3103,6 +3312,8 @@
         localCount: state.localDocuments.length,
         documentCount: state.documents.length,
         scanErrors: state.scanErrors.length,
+        fileStorage: state.fileStorage,
+        storedFileCount: state.storedFileCount,
         scanned: state.scanned,
         totalMatches: state.totalMatches,
         workerSupported: state.workerSupported,

@@ -19,8 +19,10 @@ async function loadSelectedFiles(files) {
   state.preview = null;
   state.scanned = 0;
   state.totalMatches = 0;
+  state.storedFileCount = 0;
 
   if (hwpFiles.length === 0) {
+    await clearStoredFiles();
     fileStateEl.textContent = t("index.noHwpFiles");
     syncDocuments();
     renderPreview();
@@ -29,18 +31,7 @@ async function loadSelectedFiles(files) {
     return;
   }
 
-  state.localDocuments = hwpFiles.map((file) => ({
-    id: "folder:" + filePathOf(file),
-    name: file.name,
-    label: filePathOf(file),
-    format: extensionOf(file.name).toUpperCase(),
-    path: filePathOf(file),
-    repoPath: filePathOf(file),
-    source: "folder",
-    size: file.size ?? 0,
-    lastModified: file.lastModified ?? 0,
-    getBytes: async () => new Uint8Array(await file.arrayBuffer()),
-  }));
+  state.localDocuments = await createDocumentDescriptors(hwpFiles);
 
   syncDocuments();
   setStatus("ready");
@@ -177,6 +168,74 @@ function readDirectoryEntries(reader) {
   });
 }
 
+async function createDocumentDescriptors(files) {
+  const records = files.map((file) => ({
+    id: "folder:" + filePathOf(file),
+    name: file.name,
+    label: filePathOf(file),
+    format: extensionOf(file.name).toUpperCase(),
+    path: filePathOf(file),
+    repoPath: filePathOf(file),
+    source: "folder",
+    size: file.size ?? 0,
+    lastModified: file.lastModified ?? 0,
+    file,
+  }));
+
+  if (!BrowserFileStore.isSupported()) {
+    state.fileStorage = "memory";
+    state.storedFileCount = 0;
+    return records.map((record) => memoryDescriptor(record));
+  }
+
+  try {
+    const stored = await BrowserFileStore.replaceFiles(records);
+    state.fileStorage = "indexeddb";
+    state.storedFileCount = stored.length;
+    return stored.map((record) => indexedDbDescriptor(record));
+  } catch (error) {
+    state.fileStorage = "memory";
+    state.storedFileCount = 0;
+    state.scanErrors.push({
+      path: "indexeddb",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return records.map((record) => memoryDescriptor(record));
+  }
+}
+
+function indexedDbDescriptor(record) {
+  return {
+    ...record,
+    getBytes: async () => BrowserFileStore.getBytes(record.id),
+  };
+}
+
+function memoryDescriptor(record) {
+  const { file, ...metadata } = record;
+  return {
+    ...metadata,
+    getBytes: async () => new Uint8Array(await file.arrayBuffer()),
+  };
+}
+
+async function clearStoredFiles() {
+  if (!BrowserFileStore.isSupported()) {
+    state.fileStorage = "memory";
+    state.storedFileCount = 0;
+    return;
+  }
+
+  try {
+    await BrowserFileStore.clear();
+    state.fileStorage = "indexeddb";
+    state.storedFileCount = 0;
+  } catch {
+    state.fileStorage = "memory";
+    state.storedFileCount = 0;
+  }
+}
+
 function fileWithRelativePath(file, relativePath) {
   if (!relativePath) {
     return file;
@@ -186,6 +245,7 @@ function fileWithRelativePath(file, relativePath) {
     size: file.size,
     lastModified: file.lastModified,
     webkitRelativePath: relativePath,
+    blob: file,
     arrayBuffer: () => file.arrayBuffer(),
   };
 }
