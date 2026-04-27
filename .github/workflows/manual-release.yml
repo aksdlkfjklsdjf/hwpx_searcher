@@ -32,8 +32,8 @@ concurrency:
 jobs:
   build-and-release:
     name: Build and upload release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
 
     env:
       GH_TOKEN: ${{ github.token }}
@@ -65,11 +65,11 @@ jobs:
       - name: Run unit tests
         run: npm test
 
-      - name: Build and smoke-test production app
-        run: npm run html:test
+      - name: Build production app
+        run: npm run html:build
 
-      - name: Build and smoke-test standalone release HTML
-        run: npm run html:test:release
+      - name: Build standalone release HTML
+        run: npm run html:build:release
 
       - name: Prepare release asset
         id: package
@@ -94,7 +94,7 @@ jobs:
 
           Download the HTML asset and open it directly. The rhwp WASM runtime is embedded, so no sibling files are required.
 
-          This workflow is manual-only and runs the TypeScript check, unit tests, normal production smoke test, and standalone release smoke test before uploading the release asset.
+          This workflow is manual-only and uses the lightweight `ubuntu-slim` runner. It runs the TypeScript check, unit tests, normal production build, and standalone release build before uploading the release asset.
           NOTES
 
       - name: Create or update GitHub Release
