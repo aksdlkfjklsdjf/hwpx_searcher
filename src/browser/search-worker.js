@@ -54,8 +54,11 @@ function searchDocument(task) {
 
     return {
       documentIndex: task.documentIndex,
-      name: descriptor.source === "folder" ? descriptor.path : descriptor.name,
-      format: descriptor.source === "folder" ? descriptor.format + " · local" : descriptor.format,
+      name: descriptor.name,
+      format: descriptor.format,
+      rawFormat: descriptor.format,
+      size: descriptor.size,
+      lastModified: descriptor.lastModified,
       path: descriptor.path,
       source: descriptor.source,
       pages,

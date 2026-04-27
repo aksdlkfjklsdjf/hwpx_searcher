@@ -19,13 +19,17 @@ function renderResultList(query, caseSensitive) {
 
     const name = document.createElement("span");
     name.className = "result-name";
-    name.textContent = item.name;
+    name.textContent = displayFileName(item);
+    name.title = item.path || item.name;
 
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.textContent = item.count + " " + displayResultFormat(item);
-
-    title.append(disclosure, name, badge);
+    title.append(
+      disclosure,
+      name,
+      metadataCell(displayResultFormat(item), "result-type"),
+      metadataCell(formatModifiedDate(item.lastModified), "result-modified"),
+      metadataCell(formatFileSize(item.size), "result-size"),
+      metadataCell(String(item.count), "result-count"),
+    );
 
     const pageList = document.createElement("div");
     pageList.className = "page-match-list";
@@ -72,6 +76,37 @@ function renderResultList(query, caseSensitive) {
     }
 
     card.append(title, pageList);
+    resultsEl.append(card);
+  }
+}
+
+function renderQueuedFileList() {
+  resultsEl.textContent = "";
+  for (const item of state.documents) {
+    const card = document.createElement("article");
+    card.className = "result-card queued-file-card";
+
+    const row = document.createElement("div");
+    row.className = "result-title queued-file-row";
+
+    const spacer = document.createElement("span");
+    spacer.className = "result-disclosure";
+    spacer.setAttribute("aria-hidden", "true");
+
+    const name = document.createElement("span");
+    name.className = "result-name";
+    name.textContent = displayFileName(item);
+    name.title = item.path || item.name;
+
+    row.append(
+      spacer,
+      name,
+      metadataCell(displayResultFormat(item), "result-type"),
+      metadataCell(formatModifiedDate(item.lastModified), "result-modified"),
+      metadataCell(formatFileSize(item.size), "result-size"),
+      metadataCell("", "result-count"),
+    );
+    card.append(row);
     resultsEl.append(card);
   }
 }
@@ -130,6 +165,45 @@ function displayResultFormat(item) {
     return t("result.localFormat", { format: item.rawFormat || item.format.replace(/\s+·\s+local$/, "") });
   }
   return item.format;
+}
+
+function displayFileName(item) {
+  const value = String(item.name || item.path || "");
+  const normalized = value.replace(/\\/g, "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || value;
+}
+
+function metadataCell(text, className) {
+  const cell = document.createElement("span");
+  cell.className = "result-meta " + className;
+  cell.textContent = text;
+  return cell;
+}
+
+function formatFileSize(size) {
+  const bytes = Number(size);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "";
+  }
+  if (bytes < 1024) {
+    return Math.round(bytes) + " B";
+  }
+  if (bytes < 1024 * 1024) {
+    return Math.round(bytes / 1024) + " KB";
+  }
+  return (bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0) + " MB";
+}
+
+function formatModifiedDate(lastModified) {
+  const timestamp = Number(lastModified);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "";
+  }
+  return new Date(timestamp).toLocaleDateString(I18n.getLanguage(), {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function highlight(text, query, caseSensitive) {

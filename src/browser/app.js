@@ -13,7 +13,9 @@ const state = {
   scanned: 0,
   totalMatches: 0,
   workerSupported: typeof Worker !== "undefined",
-  maxWorkers: Math.max(1, Math.min(8, navigator.hardwareConcurrency || 2)),
+  cpuThreads: detectCpuThreads(),
+  maxWorkers: detectCpuThreads(),
+  autoWorkerLimit: Math.max(1, Math.ceil(detectCpuThreads() * 0.5)),
   lastWorkerCount: 0,
   workerFallbackError: "",
   workerUrl: null,
@@ -22,6 +24,8 @@ const state = {
   language: "en",
   statusKey: "loading",
   statusState: "busy",
+  sortField: "name",
+  sortDirection: "asc",
   dragDepth: 0,
 };
 
@@ -31,6 +35,18 @@ const GROUP_LEVEL = Object.freeze({
   file: "file",
   page: "page",
   detail: "detail",
+});
+const SORT_FIELD = Object.freeze({
+  path: "path",
+  name: "name",
+  modified: "modified",
+  size: "size",
+  type: "type",
+  matches: "matches",
+});
+const SORT_DIRECTION = Object.freeze({
+  asc: "asc",
+  desc: "desc",
 });
 const systemThemeMedia = typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-color-scheme: dark)")
@@ -52,6 +68,7 @@ const caseEl = document.getElementById("case");
 const hwpFilterEl = document.getElementById("filter-hwp");
 const hwpxFilterEl = document.getElementById("filter-hwpx");
 const pathFilterEl = document.getElementById("path-filter");
+const sortHeaderButtons = Array.from(document.querySelectorAll("[data-sort-field]"));
 const folderInputEl = document.getElementById("folder-input");
 const fileStateEl = document.getElementById("file-state");
 const sourceCountEl = document.getElementById("source-count");
@@ -100,6 +117,11 @@ try {
   hwpFilterEl.addEventListener("change", handleFilterChange);
   hwpxFilterEl.addEventListener("change", handleFilterChange);
   pathFilterEl.addEventListener("input", handleFilterChange);
+  sortHeaderButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      toggleSortField(button.dataset.sortField);
+    });
+  });
   groupLevelEl.addEventListener("change", handleGroupLevelChange);
   groupLevelButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -155,6 +177,10 @@ try {
     setLanguage: async (language) => {
       applyLanguagePreference(language);
       writeStoredLanguage(state.language);
+      return diagnosticState();
+    },
+    setSort: async (field, direction) => {
+      setSort(field, direction);
       return diagnosticState();
     },
     state: diagnosticState,
@@ -249,9 +275,11 @@ async function searchDescriptor(documentIndex, descriptor, query, caseSensitive)
 
     return {
       documentIndex,
-      name: descriptor.source === "folder" ? descriptor.path : descriptor.name,
+      name: descriptor.name,
       format: descriptor.format,
       rawFormat: descriptor.format,
+      size: descriptor.size,
+      lastModified: descriptor.lastModified,
       path: descriptor.path,
       source: descriptor.source,
       pages,
@@ -340,8 +368,10 @@ function handleSearchResult(result, query, caseSensitive) {
     result.query = query;
     result.caseSensitive = caseSensitive;
     result.rawFormat = state.documents[result.documentIndex]?.format || result.rawFormat || result.format;
+    result.size = state.documents[result.documentIndex]?.size ?? result.size;
+    result.lastModified = state.documents[result.documentIndex]?.lastModified ?? result.lastModified;
     state.searchResults.push(result);
-    state.searchResults.sort((a, b) => a.documentIndex - b.documentIndex);
+    sortSearchResults();
     state.totalMatches += result.count;
     renderResultList(query, caseSensitive);
   }
@@ -365,6 +395,8 @@ function publicDescriptor(descriptor) {
     name: descriptor.name,
     label: descriptor.label,
     format: descriptor.format,
+    size: descriptor.size,
+    lastModified: descriptor.lastModified,
     path: descriptor.path,
     repoPath: descriptor.repoPath,
     source: descriptor.source,
@@ -379,6 +411,26 @@ function transferableBuffer(bytes) {
 }
 
 function handleFilterChange() {
+  resetSearchState();
+  syncDocuments();
+  renderPreview();
+  renderIdleSummary();
+  updateReadyState();
+}
+
+function handleSortChange() {
+  syncDocuments();
+  sortSearchResults();
+  if (state.searchResults.length > 0) {
+    renderSearchSummary(state.totalMatches);
+    renderResultList(searchEl.value, caseEl.checked);
+  } else {
+    renderIdleSummary();
+  }
+  updateReadyState();
+}
+
+function resetSearchState() {
   state.searchRun += 1;
   state.searching = false;
   state.searchResults = [];
@@ -390,10 +442,6 @@ function handleFilterChange() {
   searchButtonEl.disabled = false;
   progressEl.hidden = true;
   setStatus("ready");
-  syncDocuments();
-  renderPreview();
-  renderIdleSummary();
-  updateReadyState();
 }
 
 function handleGroupLevelChange() {
@@ -428,9 +476,85 @@ function syncDocuments() {
     const typeAllowed = (format === "hwp" && hwpFilterEl.checked) || (format === "hwpx" && hwpxFilterEl.checked);
     const pathAllowed = !pathNeedle || doc.path.toLocaleLowerCase().includes(pathNeedle);
     return typeAllowed && pathAllowed;
-  });
+  }).sort(compareDocuments);
   state.lastWorkerCount = resolveWorkerCount();
   renderMetrics();
+}
+
+function compareDocuments(left, right) {
+  const field = currentSortField();
+  const direction = currentSortDirection() === SORT_DIRECTION.desc ? -1 : 1;
+  const primary = compareSortValues(sortValue(left, field), sortValue(right, field));
+  if (primary !== 0) {
+    return primary * direction;
+  }
+  return left.path.localeCompare(right.path, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortSearchResults() {
+  state.searchResults.sort(compareDocuments);
+}
+
+function sortValue(document, field) {
+  if (field === SORT_FIELD.name) {
+    return document.name;
+  }
+  if (field === SORT_FIELD.modified) {
+    return Number(document.lastModified) || 0;
+  }
+  if (field === SORT_FIELD.size) {
+    return Number(document.size) || 0;
+  }
+  if (field === SORT_FIELD.type) {
+    return document.format;
+  }
+  if (field === SORT_FIELD.matches) {
+    return Number(document.count) || 0;
+  }
+  return document.path;
+}
+
+function compareSortValues(left, right) {
+  if (typeof left === "number" || typeof right === "number") {
+    return (Number(left) || 0) - (Number(right) || 0);
+  }
+  return String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function currentSortField() {
+  return Object.values(SORT_FIELD).includes(state.sortField) ? state.sortField : SORT_FIELD.path;
+}
+
+function currentSortDirection() {
+  return Object.values(SORT_DIRECTION).includes(state.sortDirection) ? state.sortDirection : SORT_DIRECTION.asc;
+}
+
+function toggleSortField(field) {
+  const nextField = Object.values(SORT_FIELD).includes(field) ? field : SORT_FIELD.path;
+  const nextDirection = currentSortField() === nextField && currentSortDirection() === SORT_DIRECTION.asc
+    ? SORT_DIRECTION.desc
+    : SORT_DIRECTION.asc;
+  setSort(nextField, nextDirection);
+}
+
+function setSort(field, direction = currentSortDirection()) {
+  state.sortField = Object.values(SORT_FIELD).includes(field) ? field : SORT_FIELD.path;
+  state.sortDirection = Object.values(SORT_DIRECTION).includes(direction) ? direction : SORT_DIRECTION.asc;
+  syncSortHeader();
+  handleSortChange();
+}
+
+function syncSortHeader() {
+  const field = currentSortField();
+  const direction = currentSortDirection();
+  for (const button of sortHeaderButtons) {
+    const active = button.dataset.sortField === field;
+    button.setAttribute("aria-sort", active ? (direction === SORT_DIRECTION.asc ? "ascending" : "descending") : "none");
+    const indicator = button.querySelector(".sort-indicator");
+    if (indicator) {
+      indicator.textContent = active ? (direction === SORT_DIRECTION.asc ? "↑" : "↓") : "";
+    }
+  }
 }
 
 function initializeLanguage() {
@@ -451,6 +575,7 @@ function applyLanguagePreference(language) {
   languageSelectEl.value = state.language;
   I18n.translateDocument();
   syncThemeButton();
+  syncSortHeader();
   setStatus(state.statusKey, state.statusState);
   populateWorkerOptions(currentWorkerValue);
   renderMetrics();
@@ -609,7 +734,9 @@ function diagnosticState() {
     totalMatches: state.totalMatches,
     workerSupported: state.workerSupported,
     workerCount: state.lastWorkerCount,
+    cpuThreads: state.cpuThreads,
     maxWorkers: state.maxWorkers,
+    autoWorkerLimit: state.autoWorkerLimit,
     workerFallbackError: state.workerFallbackError,
     wasmSource: state.wasmSource,
     searchResultCount: state.searchResults.length,
@@ -617,20 +744,26 @@ function diagnosticState() {
     themePreference: state.themePreference,
     language: state.language,
     groupLevel: groupLevelEl.value,
+    sortField: currentSortField(),
+    sortDirection: currentSortDirection(),
     previewOpen: Boolean(state.preview),
-    samples: state.documents.map(({ name, format, source, path }) => ({
+    samples: state.documents.map(({ name, format, source, path, size, lastModified }) => ({
       name,
       format,
       source,
       path,
+      size,
+      lastModified,
       loaded: false,
     })),
-    results: state.searchResults.map(({ name, format, pages, count, path }) => ({
+    results: state.searchResults.map(({ name, format, pages, count, path, size, lastModified }) => ({
       name,
       format,
       pages,
       count,
       path,
+      size,
+      lastModified,
     })),
   };
 }
@@ -738,8 +871,12 @@ function resolveWorkerCount() {
     return Math.max(1, Math.min(Number(selected) || 1, state.maxWorkers, Math.max(1, state.documents.length || 1)));
   }
 
-  const automatic = Math.max(1, Math.min(4, state.maxWorkers));
+  const automatic = Math.max(1, Math.min(state.autoWorkerLimit, state.maxWorkers));
   return Math.max(1, Math.min(automatic, Math.max(1, state.documents.length || 1)));
+}
+
+function detectCpuThreads() {
+  return Math.max(1, Math.floor(Number(navigator.hardwareConcurrency) || 2));
 }
 
 function installMeasureTextWidth() {

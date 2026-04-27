@@ -83,6 +83,23 @@
             <h2 data-i18n="panel.results">Results</h2>
             <div id="summary" class="summary" data-i18n="summary.idle">Idle</div>
           </div>
+          <div id="file-detail-header" class="file-detail-header" role="row">
+            <button type="button" class="file-detail-heading file-detail-heading-name" data-sort-field="name" aria-sort="ascending">
+              <span data-i18n="sort.filename">Filename</span><span class="sort-indicator" aria-hidden="true">↑</span>
+            </button>
+            <button type="button" class="file-detail-heading" data-sort-field="type" aria-sort="none">
+              <span data-i18n="sort.type">File type</span><span class="sort-indicator" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="file-detail-heading" data-sort-field="modified" aria-sort="none">
+              <span data-i18n="sort.modifiedShort">Modified</span><span class="sort-indicator" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="file-detail-heading" data-sort-field="size" aria-sort="none">
+              <span data-i18n="sort.sizeShort">Size</span><span class="sort-indicator" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="file-detail-heading" data-sort-field="matches" aria-sort="none">
+              <span data-i18n="metric.matches">Matches</span><span class="sort-indicator" aria-hidden="true"></span>
+            </button>
+          </div>
           <progress id="progress" value="0" max="1" hidden></progress>
           <div id="results" class="result-list"></div>
         </section>

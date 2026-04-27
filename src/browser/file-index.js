@@ -2,6 +2,8 @@ function filesFromTestItems(items) {
   return items.map((item) => ({
     name: item.name,
     webkitRelativePath: item.relativePath || item.name,
+    size: item.size ?? Math.floor((item.base64?.length || 0) * 3 / 4),
+    lastModified: item.lastModified ?? 0,
     arrayBuffer: async () => base64ToBytes(item.base64).buffer,
   }));
 }
@@ -36,6 +38,7 @@ async function loadSelectedFiles(files) {
     repoPath: filePathOf(file),
     source: "folder",
     size: file.size ?? 0,
+    lastModified: file.lastModified ?? 0,
     getBytes: async () => new Uint8Array(await file.arrayBuffer()),
   }));
 
@@ -181,6 +184,7 @@ function fileWithRelativePath(file, relativePath) {
   return {
     name: file.name,
     size: file.size,
+    lastModified: file.lastModified,
     webkitRelativePath: relativePath,
     arrayBuffer: () => file.arrayBuffer(),
   };

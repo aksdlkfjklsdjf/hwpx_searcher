@@ -44,10 +44,11 @@ open hwp-search.html
 
 The build writes `hwp-search.html`, `rhwp_bg.wasm`, and a `rhwp_bg.wasm.base64.js` fallback. Keep those files together. Browsers can load `rhwp_bg.wasm` directly when the app is hosted over HTTP; the fallback keeps the same production HTML working when opened directly from `file://`, where Chrome blocks local WASM fetches.
 
-The app starts with no documents loaded. Folder selection or drag-and-drop queues nested `.hwp` and `.hwpx` files without parsing them first. Search runs through a bounded Web Worker pool, so multiple files can be scanned in parallel while only the active worker batch is opened in memory.
+The app starts with no documents loaded. Folder selection or drag-and-drop queues nested `.hwp` and `.hwpx` files without parsing them first. Search runs through a bounded Web Worker pool, so multiple files can be scanned in parallel while only the active worker batch is opened in memory. The Auto worker setting uses about 50% of detected CPU threads, clamped to the number of matching documents.
 
 The browser UI follows a desktop document-search workspace: search bar, filter/index rail, dense results pane, and popup document preview.
 Matches are grouped under collapsible file results, then by page. Selecting a page expands the snippets for that page; selecting a snippet opens the document page in a popup preview with animated color-changing keyword highlights in the rendered document. The popup closes from the X button, Escape, or an outside click.
+Queued files and search results use a file-explorer-style details view with sortable filename, type, modified date, size, and match-count columns. Result rows show file type, size, and modified date when the browser provides that metadata.
 The Group level slider controls the initial result expansion level after each search: file groups, page groups, or detail rows.
 The theme button cycles through System, Light, and Dark modes; System follows the browser `prefers-color-scheme` setting and explicit choices are saved locally. In dark mode, popup document pages are inverted for easier reading.
 The language selector supports English and Korean UI text. The app starts in English by default, saves explicit choices locally, and also accepts `?lang=ko` or `?lang=en` when opened from `file://` or HTTP.

@@ -70,7 +70,7 @@ try {
   if (!["wasm-file", "wasm-fallback-script"].includes(ready.wasmSource)) {
     throw new Error(`App did not load rhwp through an external WASM path: ${JSON.stringify(ready)}`);
   }
-  if (!ready.workerSupported || ready.maxWorkers < 1) {
+  if (!ready.workerSupported || ready.maxWorkers < 1 || ready.cpuThreads < 1 || ready.autoWorkerLimit !== Math.max(1, Math.ceil(ready.cpuThreads * 0.5))) {
     throw new Error(`Worker support was not detected: ${JSON.stringify(ready)}`);
   }
   if (ready.themePreference !== "system" || !["light", "dark"].includes(ready.theme)) {
@@ -86,10 +86,12 @@ try {
     groupLevelValue: document.querySelector("#group-level")?.value,
     groupSliderValue: document.querySelector("#group-level-slider")?.dataset.value,
     groupSliderSelected: document.querySelector("[data-group-level='page']")?.getAttribute("aria-checked"),
+    sortHeaderActive: document.querySelector("[data-sort-field='name']")?.getAttribute("aria-sort"),
+    sortHeaderText: document.querySelector("[data-sort-field='name']")?.textContent?.trim(),
     themeButtonPreference: document.querySelector("#theme-button")?.dataset.themePreference,
     themeButtonText: document.querySelector("#theme-button-label")?.textContent,
   }))()`);
-  if (!initialUi.menuGone || initialUi.dropOverlayHidden !== true || !initialUi.queuedSelectorGone || initialUi.groupLevelValue !== "page" || initialUi.groupSliderValue !== "page" || initialUi.groupSliderSelected !== "true" || initialUi.themeButtonPreference !== "system" || initialUi.themeButtonText !== "Theme: System") {
+  if (!initialUi.menuGone || initialUi.dropOverlayHidden !== true || !initialUi.queuedSelectorGone || initialUi.groupLevelValue !== "page" || initialUi.groupSliderValue !== "page" || initialUi.groupSliderSelected !== "true" || initialUi.sortHeaderActive !== "ascending" || !initialUi.sortHeaderText?.includes("Filename") || initialUi.themeButtonPreference !== "system" || initialUi.themeButtonText !== "Theme: System") {
     throw new Error(`Initial UI chrome was wrong: ${JSON.stringify(initialUi)}`);
   }
 
@@ -103,9 +105,10 @@ try {
       status: document.querySelector("#status")?.textContent,
       summary: document.querySelector("#summary")?.textContent,
       groupLabel: document.querySelector("label[for='group-level']")?.textContent,
+      sortHeaderText: document.querySelector("[data-sort-field='name']")?.textContent?.trim(),
     };
   })()`);
-  if (koreanLanguage.language !== "ko" || koreanLanguage.htmlLang !== "ko" || koreanLanguage.searchButton !== "검색" || koreanLanguage.searchPlaceholder !== "검색어" || koreanLanguage.status !== "준비됨" || koreanLanguage.summary !== "대기 중" || koreanLanguage.groupLabel !== "그룹 단계") {
+  if (koreanLanguage.language !== "ko" || koreanLanguage.htmlLang !== "ko" || koreanLanguage.searchButton !== "검색" || koreanLanguage.searchPlaceholder !== "검색어" || koreanLanguage.status !== "준비됨" || koreanLanguage.summary !== "대기 중" || koreanLanguage.groupLabel !== "그룹 단계" || !koreanLanguage.sortHeaderText?.includes("파일명")) {
     throw new Error(`Korean language did not apply: ${JSON.stringify(koreanLanguage)}`);
   }
   const englishLanguage = await client.evaluate(`(async () => {
@@ -186,11 +189,15 @@ try {
     {
       name: "local-line.hwp",
       relativePath: "contracts/2026/local-line.hwp",
+      size: 2048,
+      lastModified: Date.UTC(2024, 0, 5),
       base64: await readFile(path.resolve("samples/rhwp/lseg-01-basic.hwp"), "base64"),
     },
     {
       name: "local-ref.hwpx",
       relativePath: "contracts/references/local-ref.hwpx",
+      size: 4096,
+      lastModified: Date.UTC(2025, 6, 15),
       base64: await readFile(path.resolve("samples/rhwp/ref_text.hwpx"), "base64"),
     },
   ];
@@ -218,6 +225,35 @@ try {
   if (folderResult.samples.some((sample) => sample.loaded !== false)) {
     throw new Error(`Drag/drop import parsed documents before search: ${JSON.stringify(folderResult)}`);
   }
+  if (folderResult.sortField !== "name" || folderResult.sortDirection !== "asc" || folderResult.samples[0]?.name !== "local-line.hwp" || folderResult.samples[1]?.name !== "local-ref.hwpx") {
+    throw new Error(`Default filename sort was wrong: ${JSON.stringify(folderResult)}`);
+  }
+  const noQueuedRows = await client.evaluate(`(() => ({
+    rows: document.querySelectorAll(".result-card").length,
+    names: document.querySelectorAll(".result-name").length,
+    headerScrolls: document.querySelector("#file-detail-header").scrollWidth > document.querySelector("#file-detail-header").clientWidth,
+    listScrollsX: document.querySelector("#results").scrollWidth > document.querySelector("#results").clientWidth,
+  }))()`);
+  if (noQueuedRows.rows !== 0 || noQueuedRows.names !== 0 || noQueuedRows.headerScrolls || noQueuedRows.listScrollsX) {
+    throw new Error(`Queued files rendered before search or details header overflowed: ${JSON.stringify(noQueuedRows)}`);
+  }
+
+  const modifiedSort = await client.evaluate(`(() => {
+    document.querySelector("[data-sort-field='modified']")?.click();
+    document.querySelector("[data-sort-field='modified']")?.click();
+    return {
+      ...window.__HWP_SINGLE_HTML_TEST__.state(),
+      modifiedHeader: document.querySelector("[data-sort-field='modified']")?.getAttribute("aria-sort"),
+      rows: [...document.querySelectorAll(".result-name")].map((node) => node.textContent),
+    };
+  })()`);
+  if (modifiedSort.sortField !== "modified" || modifiedSort.sortDirection !== "desc" || modifiedSort.samples[0]?.path !== "contracts/references/local-ref.hwpx" || modifiedSort.samples[1]?.path !== "contracts/2026/local-line.hwp" || modifiedSort.samples[0]?.lastModified <= modifiedSort.samples[1]?.lastModified) {
+    throw new Error(`Modified-date sort was wrong: ${JSON.stringify(modifiedSort)}`);
+  }
+  const nameSort = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.setSort("name", "asc")`);
+  if (nameSort.sortField !== "name" || nameSort.sortDirection !== "asc" || nameSort.samples[0]?.name !== "local-line.hwp" || nameSort.samples[1]?.name !== "local-ref.hwpx") {
+    throw new Error(`Filename sort was wrong: ${JSON.stringify(nameSort)}`);
+  }
 
   const hwpxSearchState = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("\\uC548\\uB155")`);
   if (hwpxSearchState.workerCount < 1 || hwpxSearchState.searchResultCount < 1 || !hwpxSearchState.results.some((result) => result.path.includes("local-ref.hwpx"))) {
@@ -225,7 +261,8 @@ try {
   }
 
   const recursiveSearchState = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("\\uBB38")`);
-  if (recursiveSearchState.workerCount < 2 || recursiveSearchState.searchResultCount < 1 || recursiveSearchState.totalMatches < 2 || recursiveSearchState.scanErrors !== 0) {
+  const expectedAutoWorkers = Math.max(1, Math.min(recursiveSearchState.autoWorkerLimit, recursiveSearchState.documentCount || 1));
+  if (recursiveSearchState.workerCount !== expectedAutoWorkers || recursiveSearchState.searchResultCount < 1 || recursiveSearchState.totalMatches < 2 || recursiveSearchState.scanErrors !== 0) {
     throw new Error(`HWP search state was wrong: ${JSON.stringify(recursiveSearchState)}`);
   }
 
@@ -245,15 +282,15 @@ try {
       previewOpen: !document.querySelector("#preview-overlay")?.hidden,
       fileState: document.querySelector("#file-state")?.textContent,
       hasSvg: Boolean(document.querySelector("#page svg")),
-      hasLocalPath: [...document.querySelectorAll(".result-name")]
-        .some((node) => node.textContent.includes("contracts/2026/local-line.hwp")),
+      resultNames: [...document.querySelectorAll(".result-name")].map((node) => node.textContent),
+      resultTitles: [...document.querySelectorAll(".result-name")].map((node) => node.getAttribute("title") || ""),
     };
   })()`);
 
-  if (recursiveSearch.status !== "Ready" || recursiveSearch.docs !== "2" || recursiveSearch.scanned !== "2" || Number(recursiveSearch.workers) < 2) {
+  if (recursiveSearch.status !== "Ready" || recursiveSearch.docs !== "2" || recursiveSearch.scanned !== "2" || Number(recursiveSearch.workers) !== expectedAutoWorkers) {
     throw new Error(`Search metrics/status were wrong: ${JSON.stringify(recursiveSearch)}`);
   }
-  if (recursiveSearch.resultCards < 1 || recursiveSearch.pageRows < 1 || recursiveSearch.occurrenceRows !== 0 || recursiveSearch.groupLevel !== "page" || recursiveSearch.previewOpen || recursiveSearch.hasSvg || !recursiveSearch.hasLocalPath) {
+  if (recursiveSearch.resultCards < 1 || recursiveSearch.pageRows < 1 || recursiveSearch.occurrenceRows !== 0 || recursiveSearch.groupLevel !== "page" || recursiveSearch.previewOpen || recursiveSearch.hasSvg || !recursiveSearch.resultNames.includes("local-line.hwp") || recursiveSearch.resultNames.some((name) => name.includes("/")) || !recursiveSearch.resultTitles.some((title) => title.includes("contracts/2026/local-line.hwp"))) {
     throw new Error(`Recursive search did not group imported nested files by page: ${JSON.stringify(recursiveSearch)}`);
   }
 

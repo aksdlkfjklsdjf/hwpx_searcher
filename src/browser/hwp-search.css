@@ -531,11 +531,65 @@
       text-align: right;
     }
 
+    .file-detail-header {
+      display: grid;
+      grid-template-columns: 18px minmax(120px, 1fr) minmax(64px, 0.34fr) minmax(84px, 0.42fr) minmax(58px, 0.28fr) minmax(54px, 0.24fr);
+      gap: 6px;
+      align-items: center;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--chrome);
+      overflow: hidden;
+    }
+
+    .file-detail-header::before {
+      content: "";
+      grid-column: 1;
+    }
+
+    .file-detail-heading {
+      height: 30px;
+      justify-content: flex-start;
+      gap: 4px;
+      min-width: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      padding: 0;
+      text-align: left;
+    }
+
+    .file-detail-heading span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-detail-heading:hover, .file-detail-heading:focus-visible {
+      color: var(--text);
+      background: transparent;
+      outline-offset: -2px;
+    }
+
+    .file-detail-heading-name {
+      grid-column: 2;
+    }
+
+    .sort-indicator {
+      color: var(--accent-strong);
+      min-width: 10px;
+    }
+
     .result-list {
       display: grid;
       gap: 0;
       max-height: calc(100vh - 140px);
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
 
     .result-card {
@@ -551,9 +605,9 @@
 
     .result-title {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-columns: 18px minmax(120px, 1fr) minmax(64px, 0.34fr) minmax(84px, 0.42fr) minmax(58px, 0.28fr) minmax(54px, 0.24fr);
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       width: 100%;
       height: auto;
       min-height: 42px;
@@ -569,9 +623,17 @@
       text-align: left;
     }
 
+    .queued-file-row {
+      cursor: default;
+    }
+
     .result-title:hover, .result-title:focus-visible {
       background: var(--row-hover);
       outline: none;
+    }
+
+    .queued-file-row:hover {
+      background: transparent;
     }
 
     .result-disclosure {
@@ -589,11 +651,18 @@
       white-space: nowrap;
     }
 
-    .badge {
+    .result-meta {
       color: var(--accent-strong);
       font-size: 12px;
       font-weight: 700;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .result-modified, .result-size, .result-count {
+      color: var(--muted);
     }
 
     .snippet {
