@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import test from "node:test";
+import { searchHwpFile } from "./search.js";
 import { findTextMatches } from "./text-match.js";
 
 test("finds case-insensitive matches with snippets", () => {
@@ -18,4 +20,19 @@ test("honors case-sensitive mode", () => {
 
 test("returns no matches for empty query", () => {
   assert.deepEqual(findTextMatches("text", "", false), []);
+});
+
+test("searches layout JSON containing raw control characters", async () => {
+  const result = await searchHwpFile(
+    resolve("samples/rhwp-upstream/samples/table-vpos-01.hwpx"),
+    "anything",
+    {
+      caseSensitive: false,
+      maxSnippetsPerFile: 5,
+      snippetRadius: 32,
+    },
+  );
+
+  assert.ok(result.pages > 0);
+  assert.equal(result.matches, 0);
 });

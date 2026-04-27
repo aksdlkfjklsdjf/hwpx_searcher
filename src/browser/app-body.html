@@ -73,8 +73,11 @@
             <div class="metric"><span class="metric-label" data-i18n="metric.scanned">Scanned</span><span id="metric-scanned" class="metric-value">0</span></div>
             <div class="metric"><span class="metric-label" data-i18n="metric.matches">Matches</span><span id="metric-matches" class="metric-value">0</span></div>
             <div class="metric"><span class="metric-label" data-i18n="metric.workers">Workers</span><span id="metric-workers" class="metric-value">0</span></div>
-            <div class="metric"><span class="metric-label" data-i18n="metric.errors">Errors</span><span id="metric-errors" class="metric-value">0</span></div>
+            <button id="error-details-toggle" class="metric metric-button" type="button" aria-expanded="false" aria-controls="error-details" disabled>
+              <span class="metric-label" data-i18n="metric.errors">Errors</span><span id="metric-errors" class="metric-value">0</span>
+            </button>
           </section>
+          <section id="error-details" class="error-details" aria-label="Error details" data-i18n-aria-label="errors.details" hidden></section>
         </div>
       </aside>
 

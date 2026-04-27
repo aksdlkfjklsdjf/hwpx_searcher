@@ -30,7 +30,7 @@ function makeSnippet(text, index, length) {
 }
 
 function extractPageText(doc, page) {
-  return extractTextFromLayout(JSON.parse(doc.getPageTextLayout(page)));
+  return extractTextFromLayout(parsePageTextLayout(doc.getPageTextLayout(page)));
 }
 
 function extractTextFromLayout(layout) {
@@ -39,6 +39,57 @@ function extractTextFromLayout(layout) {
     .join("")
     .replace(/\uFFFC/g, " ")
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+}
+
+function parsePageTextLayout(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    if (!isControlCharacterJsonError(error)) {
+      throw error;
+    }
+    return JSON.parse(escapeRawControlCharactersInJsonStrings(raw));
+  }
+}
+
+function isControlCharacterJsonError(error) {
+  return error instanceof SyntaxError && /control character/i.test(error.message);
+}
+
+function escapeRawControlCharactersInJsonStrings(raw) {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    const code = char.charCodeAt(0);
+
+    if (!inString) {
+      output += char;
+      if (char === '"') {
+        inString = true;
+      }
+      continue;
+    }
+
+    if (escaped) {
+      output += char;
+      escaped = false;
+    } else if (char === "\\") {
+      output += char;
+      escaped = true;
+    } else if (char === '"') {
+      output += char;
+      inString = false;
+    } else if (code <= 0x1f) {
+      output += "\\u" + code.toString(16).padStart(4, "0");
+    } else {
+      output += char;
+    }
+  }
+
+  return output;
 }
 
 function normalizeRunTextWithMap(text) {

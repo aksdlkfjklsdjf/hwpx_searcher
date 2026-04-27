@@ -485,6 +485,25 @@
       min-width: 0;
     }
 
+    .metric-button {
+      height: auto;
+      display: block;
+      width: 100%;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .metric-button:not(:disabled):hover {
+      border-color: var(--danger);
+      background: color-mix(in srgb, var(--panel) 86%, var(--danger));
+    }
+
+    .metric-button:disabled {
+      cursor: default;
+      opacity: 1;
+    }
+
     .metric-label {
       display: block;
       color: var(--muted);
@@ -497,6 +516,39 @@
       font-size: 18px;
       line-height: 1;
       font-weight: 780;
+    }
+
+    .error-details {
+      margin-top: 10px;
+      border: 1px solid var(--danger);
+      background: color-mix(in srgb, var(--panel) 92%, var(--danger));
+      padding: 9px;
+      max-height: 180px;
+      overflow: auto;
+    }
+
+    .error-detail-item + .error-detail-item {
+      margin-top: 9px;
+      padding-top: 9px;
+      border-top: 1px solid var(--line);
+    }
+
+    .error-detail-path, .error-detail-message {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .error-detail-path {
+      color: var(--text);
+      font-weight: 760;
+      margin-bottom: 4px;
+    }
+
+    .error-detail-message {
+      color: var(--danger);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
 
     .results-pane {

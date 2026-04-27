@@ -103,7 +103,7 @@ function buildDocumentHighlightRects(doc, page, query, caseSensitive, occurrence
     return [];
   }
 
-  const layout = JSON.parse(doc.getPageTextLayout(page));
+  const layout = parsePageTextLayout(doc.getPageTextLayout(page));
   const rawRunInfos = [];
   let textStart = 0;
   for (const run of layout.runs || []) {

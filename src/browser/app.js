@@ -26,6 +26,7 @@ const state = {
   statusState: "busy",
   sortField: "name",
   sortDirection: "asc",
+  errorDetailsOpen: false,
   dragDepth: 0,
 };
 
@@ -77,6 +78,8 @@ const metricScannedEl = document.getElementById("metric-scanned");
 const metricMatchesEl = document.getElementById("metric-matches");
 const metricWorkersEl = document.getElementById("metric-workers");
 const metricErrorsEl = document.getElementById("metric-errors");
+const errorDetailsToggleEl = document.getElementById("error-details-toggle");
+const errorDetailsEl = document.getElementById("error-details");
 const progressEl = document.getElementById("progress");
 const summaryEl = document.getElementById("summary");
 const resultsEl = document.getElementById("results");
@@ -131,6 +134,14 @@ try {
   workerCountEl.addEventListener("change", () => {
     state.lastWorkerCount = resolveWorkerCount();
     renderMetrics();
+  });
+  errorDetailsToggleEl.addEventListener("click", () => {
+    if (state.scanErrors.length === 0) {
+      return;
+    }
+    state.errorDetailsOpen = !state.errorDetailsOpen;
+    renderErrorDetails();
+    updateReadyState();
   });
   folderInputEl.addEventListener("change", async () => {
     await loadSelectedFiles(Array.from(folderInputEl.files || []));
@@ -746,6 +757,7 @@ function diagnosticState() {
     groupLevel: groupLevelEl.value,
     sortField: currentSortField(),
     sortDirection: currentSortDirection(),
+    errorDetailsOpen: state.errorDetailsOpen,
     previewOpen: Boolean(state.preview),
     samples: state.documents.map(({ name, format, source, path, size, lastModified }) => ({
       name,
@@ -815,6 +827,38 @@ function renderMetrics() {
   metricMatchesEl.textContent = String(state.totalMatches);
   metricWorkersEl.textContent = String(state.lastWorkerCount || resolveWorkerCount());
   metricErrorsEl.textContent = String(state.scanErrors.length);
+  if (state.scanErrors.length === 0) {
+    state.errorDetailsOpen = false;
+  }
+  errorDetailsToggleEl.disabled = state.scanErrors.length === 0;
+  errorDetailsToggleEl.setAttribute("aria-expanded", String(state.errorDetailsOpen && state.scanErrors.length > 0));
+  renderErrorDetails();
+}
+
+function renderErrorDetails() {
+  const shouldShow = state.errorDetailsOpen && state.scanErrors.length > 0;
+  errorDetailsToggleEl.setAttribute("aria-expanded", String(shouldShow));
+  errorDetailsEl.hidden = !shouldShow;
+  errorDetailsEl.textContent = "";
+  if (!shouldShow) {
+    return;
+  }
+
+  for (const scanError of state.scanErrors) {
+    const item = document.createElement("article");
+    item.className = "error-detail-item";
+
+    const path = document.createElement("span");
+    path.className = "error-detail-path";
+    path.textContent = t("errors.path") + ": " + (scanError.path || "");
+
+    const message = document.createElement("span");
+    message.className = "error-detail-message";
+    message.textContent = t("errors.message") + ": " + (scanError.error || "");
+
+    item.append(path, message);
+    errorDetailsEl.append(item);
+  }
 }
 
 function setStatus(key, stateName = "ready") {

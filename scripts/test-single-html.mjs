@@ -605,6 +605,73 @@ try {
     throw new Error(`KPS page 47 preview did not show visible highlight layer: ${JSON.stringify(kpsPreview)}`);
   }
 
+  const controlCharFiles = [
+    {
+      name: "table-vpos-01.hwpx",
+      relativePath: "samples/rhwp-upstream/samples/table-vpos-01.hwpx",
+      base64: await readFile(path.resolve("samples/rhwp-upstream/samples/table-vpos-01.hwpx"), "base64"),
+    },
+  ];
+  const controlCharImport = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(controlCharFiles)})`);
+  if (controlCharImport.localCount !== 1 || controlCharImport.documentCount !== 1 || controlCharImport.scanErrors !== 0) {
+    throw new Error(`Control-character fixture import failed: ${JSON.stringify(controlCharImport)}`);
+  }
+  const controlCharSearch = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("anything")`);
+  if (controlCharSearch.scanErrors !== 0 || controlCharSearch.scanned !== 1) {
+    throw new Error(`Control-character fixture produced a JSON parse error: ${JSON.stringify(controlCharSearch)}`);
+  }
+
+  const invalidFiles = [
+    {
+      name: "broken.hwp",
+      relativePath: "broken/input/broken.hwp",
+      base64: Buffer.from("not an hwp document").toString("base64"),
+    },
+  ];
+  const invalidImport = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(invalidFiles)})`);
+  if (invalidImport.localCount !== 1 || invalidImport.documentCount !== 1 || invalidImport.scanErrors !== 0) {
+    throw new Error(`Invalid fixture import failed: ${JSON.stringify(invalidImport)}`);
+  }
+  const invalidSearch = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("anything")`);
+  if (invalidSearch.scanErrors !== 1 || invalidSearch.scanned !== 1 || invalidSearch.totalMatches !== 0 || invalidSearch.errorDetailsOpen !== false) {
+    throw new Error(`Invalid fixture did not produce a closed error state: ${JSON.stringify(invalidSearch)}`);
+  }
+  const errorDetails = await client.evaluate(`(() => {
+    const toggle = document.querySelector("#error-details-toggle");
+    const panel = document.querySelector("#error-details");
+    const before = {
+      disabled: toggle?.disabled,
+      expanded: toggle?.getAttribute("aria-expanded"),
+      hidden: panel?.hidden,
+      count: document.querySelector("#metric-errors")?.textContent,
+    };
+    toggle?.click();
+    const open = {
+      disabled: toggle?.disabled,
+      expanded: toggle?.getAttribute("aria-expanded"),
+      hidden: panel?.hidden,
+      items: document.querySelectorAll(".error-detail-item").length,
+      text: panel?.textContent || "",
+      state: window.__HWP_SINGLE_HTML_TEST__.state(),
+    };
+    toggle?.click();
+    const closed = {
+      expanded: toggle?.getAttribute("aria-expanded"),
+      hidden: panel?.hidden,
+      state: window.__HWP_SINGLE_HTML_TEST__.state(),
+    };
+    return { before, open, closed };
+  })()`);
+  if (errorDetails.before.disabled !== false || errorDetails.before.expanded !== "false" || errorDetails.before.hidden !== true || errorDetails.before.count !== "1") {
+    throw new Error(`Error details metric was not clickable: ${JSON.stringify(errorDetails)}`);
+  }
+  if (errorDetails.open.disabled !== false || errorDetails.open.expanded !== "true" || errorDetails.open.hidden !== false || errorDetails.open.items !== 1 || !errorDetails.open.text.includes("broken/input/broken.hwp") || !errorDetails.open.text.includes("Message") || errorDetails.open.state.errorDetailsOpen !== true) {
+    throw new Error(`Error details did not open with path/message: ${JSON.stringify(errorDetails)}`);
+  }
+  if (errorDetails.closed.expanded !== "false" || errorDetails.closed.hidden !== true || errorDetails.closed.state.errorDetailsOpen !== false) {
+    throw new Error(`Error details did not collapse: ${JSON.stringify(errorDetails)}`);
+  }
+
   console.log(`Headless Chrome verified ${path.relative(process.cwd(), htmlPath)}: ${recursiveSearch.summary}`);
   await client.close();
 } finally {
