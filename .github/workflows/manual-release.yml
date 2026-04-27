@@ -1,0 +1,133 @@
+name: Manual release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create or update, for example v0.1.0"
+        required: true
+        default: "v0.1.0"
+      release_title:
+        description: "Release title. Defaults to the tag name when empty."
+        required: false
+        default: ""
+      draft:
+        description: "Create a draft release"
+        required: true
+        type: boolean
+        default: false
+      prerelease:
+        description: "Mark as a prerelease"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manual-release-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build and upload release
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG_NAME: ${{ inputs.tag_name }}
+      RELEASE_TITLE: ${{ inputs.release_title }}
+      RELEASE_DRAFT: ${{ inputs.draft }}
+      RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build and smoke-test production app
+        run: npm run html:test
+
+      - name: Package production app
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          asset_name="hwp-recursive-search-${version}.zip"
+          mkdir -p release
+          zip -j "release/${asset_name}" \
+            hwp-search.html \
+            rhwp_bg.wasm \
+            rhwp_bg.wasm.base64.js \
+            README.md
+          {
+            echo "asset_name=${asset_name}"
+            echo "asset_path=release/${asset_name}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          Standalone production build for recursive HWP/HWPX search.
+
+          Download and unzip the asset, then keep these files together before opening `hwp-search.html`:
+
+          - `hwp-search.html`
+          - `rhwp_bg.wasm`
+          - `rhwp_bg.wasm.base64.js`
+
+          This workflow is manual-only and runs the TypeScript check, unit tests, and headless browser smoke test before uploading the release asset.
+          NOTES
+
+      - name: Create or update GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="${RELEASE_TITLE:-$TAG_NAME}"
+          asset_path="${{ steps.package.outputs.asset_path }}"
+
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$asset_path" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            exit 0
+          fi
+
+          args=(
+            release create "$TAG_NAME"
+            "$asset_path"
+            --repo "$GITHUB_REPOSITORY"
+            --title "$title"
+            --notes-file release-notes.md
+            --target "$GITHUB_SHA"
+          )
+
+          if [ "$RELEASE_DRAFT" = "true" ]; then
+            args+=(--draft)
+          fi
+
+          if [ "$RELEASE_PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          gh "${args[@]}"
