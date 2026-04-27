@@ -44,6 +44,15 @@ open hwp-search.html
 
 The build writes `hwp-search.html`, `rhwp_bg.wasm`, and a `rhwp_bg.wasm.base64.js` fallback. Keep those files together. Browsers can load `rhwp_bg.wasm` directly when the app is hosted over HTTP; the fallback keeps the same production HTML working when opened directly from `file://`, where Chrome blocks local WASM fetches.
 
+Release builds are fully standalone HTML files with the WASM runtime embedded:
+
+```bash
+npm run html:build:release
+open release/hwp-search.html
+```
+
+The manual GitHub release workflow uploads that standalone HTML file directly, so release users do not need a zip or sibling WASM files.
+
 The app starts with no documents loaded. Folder selection or drag-and-drop queues nested `.hwp` and `.hwpx` files without parsing them first. Search runs through a bounded Web Worker pool, so multiple files can be scanned in parallel while only the active worker batch is opened in memory. The Auto worker setting uses about 50% of detected CPU threads, clamped to the number of matching documents.
 
 The browser UI follows a desktop document-search workspace: search bar, filter/index rail, dense results pane, and popup document preview.

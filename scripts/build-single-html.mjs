@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const rootDir = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const browserDir = path.join(rootDir, "src/browser");
-const outputPath = path.join(rootDir, "hwp-search.html");
+const options = parseArgs(process.argv.slice(2));
+const outputPath = path.resolve(rootDir, options.outputPath);
 const wasmFileName = "rhwp_bg.wasm";
 const wasmFallbackFileName = "rhwp_bg.wasm.base64.js";
 const wasmOutputPath = path.join(rootDir, wasmFileName);
@@ -21,28 +22,62 @@ const [rhwpJs, rhwpWasm, themeBootstrapJs, css, bodyHtml] = await Promise.all([
 ]);
 const appJs = await readBrowserBundle(["i18n.js", "search-core.js", "wasm-loader.js", "worker-client.js", "file-index.js", "results-view.js", "preview-view.js", "app.js"]);
 const workerJs = await readBrowserBundle(["search-core.js", "search-worker.js"]);
-
-const html = renderHtml({
-  payload: {
+const payload = options.embedWasm
+  ? {
+    rhwpJs,
+    rhwpWasmBase64: rhwpWasm.toString("base64"),
+    workerJs,
+  }
+  : {
     rhwpJs,
     rhwpWasmUrl: wasmFileName,
     rhwpWasmFallbackUrl: wasmFallbackFileName,
     workerJs,
-  },
+  };
+
+const html = renderHtml({
+  payload,
   themeBootstrapJs,
   css,
   bodyHtml,
   appJs,
 });
-const wasmFallbackJs = renderWasmFallbackScript(rhwpWasm);
 
 await mkdir(path.dirname(outputPath), { recursive: true });
 await writeFile(outputPath, html);
-await writeFile(wasmOutputPath, rhwpWasm);
-await writeFile(wasmFallbackOutputPath, wasmFallbackJs);
 console.log(`Wrote ${outputPath} (${Buffer.byteLength(html)} bytes)`);
-console.log(`Wrote ${wasmOutputPath} (${rhwpWasm.byteLength} bytes)`);
-console.log(`Wrote ${wasmFallbackOutputPath} (${Buffer.byteLength(wasmFallbackJs)} bytes)`);
+if (!options.embedWasm) {
+  const wasmFallbackJs = renderWasmFallbackScript(rhwpWasm);
+  await writeFile(wasmOutputPath, rhwpWasm);
+  await writeFile(wasmFallbackOutputPath, wasmFallbackJs);
+  console.log(`Wrote ${wasmOutputPath} (${rhwpWasm.byteLength} bytes)`);
+  console.log(`Wrote ${wasmFallbackOutputPath} (${Buffer.byteLength(wasmFallbackJs)} bytes)`);
+}
+
+function parseArgs(args) {
+  const parsed = {
+    embedWasm: false,
+    outputPath: "hwp-search.html",
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--embed-wasm") {
+      parsed.embedWasm = true;
+    } else if (arg === "--output") {
+      const value = args[index + 1];
+      if (!value) {
+        throw new Error("--output requires a path");
+      }
+      parsed.outputPath = value;
+      index += 1;
+    } else {
+      throw new Error("Unknown option: " + arg);
+    }
+  }
+
+  return parsed;
+}
 
 function renderHtml({ payload, themeBootstrapJs, css, bodyHtml, appJs }) {
   return `<!doctype html>

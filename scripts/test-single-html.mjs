@@ -9,22 +9,26 @@ const htmlPath = path.resolve(process.argv[2] ?? "hwp-search.html");
 const htmlDir = path.dirname(htmlPath);
 const wasmPath = path.join(htmlDir, "rhwp_bg.wasm");
 const wasmFallbackPath = path.join(htmlDir, "rhwp_bg.wasm.base64.js");
-const [htmlSource, wasmBytes, wasmFallbackSource] = await Promise.all([
-  readFile(htmlPath, "utf8"),
-  readFile(wasmPath),
-  readFile(wasmFallbackPath, "utf8"),
-]);
-if (htmlSource.includes("\"rhwpWasmBase64\":\"")) {
-  throw new Error("Production HTML should not embed rhwp WASM base64");
-}
-if (!htmlSource.includes("\"rhwpWasmUrl\":\"rhwp_bg.wasm\"") || !htmlSource.includes("\"rhwpWasmFallbackUrl\":\"rhwp_bg.wasm.base64.js\"")) {
-  throw new Error("Production HTML is missing external WASM asset references");
-}
-if (!wasmBytes.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
-  throw new Error("rhwp_bg.wasm does not have a WASM magic header");
-}
-if (!wasmFallbackSource.includes("__HWP_SEARCH_RHWP_WASM_BASE64__")) {
-  throw new Error("WASM fallback script is missing its global payload");
+const htmlSource = await readFile(htmlPath, "utf8");
+const embedsWasm = htmlSource.includes("\"rhwpWasmBase64\":\"");
+if (embedsWasm) {
+  if (htmlSource.includes("\"rhwpWasmUrl\":") || htmlSource.includes("\"rhwpWasmFallbackUrl\":")) {
+    throw new Error("Standalone HTML should not reference external WASM assets");
+  }
+} else {
+  const [wasmBytes, wasmFallbackSource] = await Promise.all([
+    readFile(wasmPath),
+    readFile(wasmFallbackPath, "utf8"),
+  ]);
+  if (!htmlSource.includes("\"rhwpWasmUrl\":\"rhwp_bg.wasm\"") || !htmlSource.includes("\"rhwpWasmFallbackUrl\":\"rhwp_bg.wasm.base64.js\"")) {
+    throw new Error("Production HTML is missing external WASM asset references");
+  }
+  if (!wasmBytes.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
+    throw new Error("rhwp_bg.wasm does not have a WASM magic header");
+  }
+  if (!wasmFallbackSource.includes("__HWP_SEARCH_RHWP_WASM_BASE64__")) {
+    throw new Error("WASM fallback script is missing its global payload");
+  }
 }
 const chromePath = findChrome();
 const port = await getFreePort();
@@ -67,7 +71,8 @@ try {
   if (ready.parsedOnLoad !== false || ready.searchResultCount !== 0) {
     throw new Error(`Documents should not be parsed before search: ${JSON.stringify(ready)}`);
   }
-  if (!["wasm-file", "wasm-fallback-script"].includes(ready.wasmSource)) {
+  const expectedWasmSources = embedsWasm ? ["embedded-base64"] : ["wasm-file", "wasm-fallback-script"];
+  if (!expectedWasmSources.includes(ready.wasmSource)) {
     throw new Error(`App did not load rhwp through an external WASM path: ${JSON.stringify(ready)}`);
   }
   if (!ready.workerSupported || ready.maxWorkers < 1 || ready.cpuThreads < 1 || ready.autoWorkerLimit !== Math.max(1, Math.ceil(ready.cpuThreads * 0.5))) {

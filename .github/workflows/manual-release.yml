@@ -65,22 +65,21 @@ jobs:
       - name: Build and smoke-test production app
         run: npm run html:test
 
-      - name: Package production app
+      - name: Build and smoke-test standalone release HTML
+        run: npm run html:test:release
+
+      - name: Prepare release asset
         id: package
         shell: bash
         run: |
           set -euo pipefail
           version="${TAG_NAME#v}"
-          asset_name="hwp-recursive-search-${version}.zip"
-          mkdir -p release
-          zip -j "release/${asset_name}" \
-            hwp-search.html \
-            rhwp_bg.wasm \
-            rhwp_bg.wasm.base64.js \
-            README.md
+          asset_name="hwp-recursive-search-${version}.html"
+          asset_path="release/${asset_name}"
+          cp release/hwp-search.html "$asset_path"
           {
             echo "asset_name=${asset_name}"
-            echo "asset_path=release/${asset_name}"
+            echo "asset_path=${asset_path}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Write release notes
@@ -90,13 +89,9 @@ jobs:
           cat > release-notes.md <<'NOTES'
           Standalone production build for recursive HWP/HWPX search.
 
-          Download and unzip the asset, then keep these files together before opening `hwp-search.html`:
+          Download the HTML asset and open it directly. The rhwp WASM runtime is embedded, so no sibling files are required.
 
-          - `hwp-search.html`
-          - `rhwp_bg.wasm`
-          - `rhwp_bg.wasm.base64.js`
-
-          This workflow is manual-only and runs the TypeScript check, unit tests, and headless browser smoke test before uploading the release asset.
+          This workflow is manual-only and runs the TypeScript check, unit tests, normal production smoke test, and standalone release smoke test before uploading the release asset.
           NOTES
 
       - name: Create or update GitHub Release
