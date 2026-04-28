@@ -28,7 +28,7 @@ self.onmessage = async (event) => {
 
 function searchDocument(task) {
   const descriptor = task.descriptor;
-  const doc = new rhwp.HwpDocument(new Uint8Array(task.bytes));
+  const doc = createHwpDocument(task.bytes);
   try {
     const pages = doc.pageCount();
     const occurrences = [];
@@ -70,6 +70,23 @@ function searchDocument(task) {
   } finally {
     doc.free();
   }
+}
+
+
+function createHwpDocument(bytes) {
+  try {
+    return new rhwp.HwpDocument(new Uint8Array(bytes));
+  } catch (error) {
+    throw normalizeRhwpDecodeError(error);
+  }
+}
+
+function normalizeRhwpDecodeError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/invalid\s+utf-?16\s*:\s*lone surrogate found/i.test(message)) {
+    return new Error(`DocInfo UTF-16 decoding failure: ${message}`);
+  }
+  return error instanceof Error ? error : new Error(message);
 }
 
 function installMeasureTextWidth() {

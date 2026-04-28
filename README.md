@@ -42,7 +42,7 @@ npm run html:build
 open hwp-search.html
 ```
 
-The build writes `hwp-search.html`, `rhwp_bg.wasm`, and a `rhwp_bg.wasm.base64.js` fallback. Keep those files together. Browsers can load `rhwp_bg.wasm` directly when the app is hosted over HTTP; the fallback keeps the same production HTML working when opened directly from `file://`, where Chrome blocks local WASM fetches.
+The build writes `hwp-search.html`, `rhwp_bg.wasm`, and a `rhwp_bg.wasm.base64.js` fallback. Keep those files together. The WASM files are generated from the configured `@rhwp/core` dependency during build time rather than maintained manually. Browsers can load `rhwp_bg.wasm` directly when the app is hosted over HTTP; the fallback keeps the same production HTML working when opened directly from `file://`, where Chrome blocks local WASM fetches.
 
 Release builds are fully standalone HTML files with the WASM runtime embedded:
 

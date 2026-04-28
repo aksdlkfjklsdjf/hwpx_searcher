@@ -18,7 +18,24 @@ export async function initializeRhwp(): Promise<void> {
 export async function loadHwpDocument(filePath: string): Promise<HwpDocument> {
   await initializeRhwp();
   const data = new Uint8Array(await readFile(filePath));
-  return new HwpDocument(data);
+
+  try {
+    return new HwpDocument(data);
+  } catch (error) {
+    throw normalizeRhwpDecodeError(error);
+  }
+}
+
+function normalizeRhwpDecodeError(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error(String(error));
+  }
+
+  if (/invalid\s+utf-?16\s*:\s*lone surrogate found/i.test(error.message)) {
+    return new Error(`DocInfo UTF-16 decoding failure: ${error.message}`);
+  }
+
+  return error;
 }
 
 function installTextMeasurementFallback(): void {
