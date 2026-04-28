@@ -8,6 +8,76 @@ function filesFromTestItems(items) {
   }));
 }
 
+function installFolderPicker({ button, input }) {
+  if (!button || !input) {
+    return;
+  }
+  input.addEventListener("change", async () => {
+    await loadSelectedFiles(Array.from(input.files || []));
+  });
+
+  button.addEventListener("click", async () => {
+    try {
+      if (isFileSystemDirectoryApiSupported()) {
+        await pickFilesWithDirectoryApi();
+        return;
+      }
+      input.click();
+    } catch (error) {
+      state.scanErrors = [{
+        path: "file-picker",
+        error: error instanceof Error ? error.message : String(error),
+      }];
+      fileStateEl.textContent = t("index.dropFailed");
+      setStatus("error", "error");
+      renderMetrics();
+      updateReadyState();
+    }
+  });
+}
+
+function isFileSystemDirectoryApiSupported() {
+  return typeof window.showDirectoryPicker === "function";
+}
+
+async function pickFilesWithDirectoryApi() {
+  try {
+    setStatus("indexing", "busy");
+    const directoryHandle = await window.showDirectoryPicker();
+    const files = await collectDirectoryHandleFiles(directoryHandle);
+    await loadSelectedFiles(files);
+  } catch (error) {
+    if (isUserAbortError(error)) {
+      setStatus("ready");
+      return;
+    }
+    throw error;
+  }
+}
+
+function isUserAbortError(error) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+async function collectDirectoryHandleFiles(directoryHandle) {
+  const files = [];
+  await walkDirectoryHandle(directoryHandle, "", files);
+  return files;
+}
+
+async function walkDirectoryHandle(directoryHandle, prefix, files) {
+  for await (const [name, handle] of directoryHandle.entries()) {
+    if (handle.kind === "file") {
+      const file = await handle.getFile();
+      files.push(fileWithRelativePath(file, prefix + name));
+      continue;
+    }
+    if (handle.kind === "directory") {
+      await walkDirectoryHandle(handle, prefix + name + "/", files);
+    }
+  }
+}
+
 async function loadSelectedFiles(files) {
   const hwpFiles = files
     .filter(isHwpLikeFile)
