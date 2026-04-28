@@ -41,29 +41,21 @@
         </div>
 
         <div class="filter-group">
-          <h2 data-i18n="panel.filters">Filters</h2>
-          <label class="check-row"><input id="filter-hwp" type="checkbox" checked> <span data-i18n="filter.hwp">HWP files</span></label>
-          <label class="check-row"><input id="filter-hwpx" type="checkbox" checked> <span data-i18n="filter.hwpx">HWPX files</span></label>
-          <label class="field-label" for="path-filter" data-i18n="filter.location">Location contains</label>
-          <input id="path-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Folder or filename" data-i18n-placeholder="filter.locationPlaceholder">
-        </div>
-
-            <div class="filter-group">
-              <h2 data-i18n="panel.options">Options</h2>
-              <label id="group-level-label" class="field-label" for="group-level" data-i18n="option.groupLevel">Group level</label>
-              <select id="group-level" class="visually-hidden-select" aria-label="Default result group level" data-i18n-aria-label="option.groupLevelAria">
-                <option value="file" selected data-i18n="option.fileGroups">File groups</option>
-                <option value="page" data-i18n="option.pageGroups">Page groups</option>
-                <option value="detail" data-i18n="option.detailRows">Detail rows</option>
-              </select>
-              <div id="group-level-slider" class="segmented-slider" role="radiogroup" aria-labelledby="group-level-label" data-value="file">
-                <span class="segmented-slider-thumb" aria-hidden="true"></span>
-                <button type="button" class="segmented-slider-option" role="radio" aria-checked="true" data-group-level="file" data-i18n="option.fileGroups">File groups</button>
-                <button type="button" class="segmented-slider-option" role="radio" aria-checked="false" data-group-level="page" data-i18n="option.pageGroups">Page groups</button>
-                <button type="button" class="segmented-slider-option" role="radio" aria-checked="false" data-group-level="detail" data-i18n="option.detailRows">Detail rows</button>
-              </div>
-              <label class="field-label" for="worker-count" data-i18n="option.workers">Workers</label>
-              <select id="worker-count" aria-label="Worker count" data-i18n-aria-label="option.workerCountAria"></select>
+          <h2 data-i18n="panel.options">Options</h2>
+          <label id="group-level-label" class="field-label" for="group-level" data-i18n="option.groupLevel">Group level</label>
+          <select id="group-level" class="visually-hidden-select" aria-label="Default result group level" data-i18n-aria-label="option.groupLevelAria">
+            <option value="file" selected data-i18n="option.fileGroups">File groups</option>
+            <option value="page" data-i18n="option.pageGroups">Page groups</option>
+            <option value="detail" data-i18n="option.detailRows">Detail rows</option>
+          </select>
+          <div id="group-level-slider" class="segmented-slider" role="radiogroup" aria-labelledby="group-level-label" data-value="file">
+            <span class="segmented-slider-thumb" aria-hidden="true"></span>
+            <button type="button" class="segmented-slider-option" role="radio" aria-checked="true" data-group-level="file" data-i18n="option.fileGroups">File groups</button>
+            <button type="button" class="segmented-slider-option" role="radio" aria-checked="false" data-group-level="page" data-i18n="option.pageGroups">Page groups</button>
+            <button type="button" class="segmented-slider-option" role="radio" aria-checked="false" data-group-level="detail" data-i18n="option.detailRows">Detail rows</button>
+          </div>
+          <label class="field-label" for="worker-count" data-i18n="option.workers">Workers</label>
+          <select id="worker-count" aria-label="Worker count" data-i18n-aria-label="option.workerCountAria"></select>
         </div>
 
         <div class="filter-group">

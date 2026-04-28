@@ -68,9 +68,6 @@ const groupLevelSliderEl = document.getElementById("group-level-slider");
 const groupLevelButtons = Array.from(document.querySelectorAll("[data-group-level]"));
 const workerCountEl = document.getElementById("worker-count");
 const caseEl = document.getElementById("case");
-const hwpFilterEl = document.getElementById("filter-hwp");
-const hwpxFilterEl = document.getElementById("filter-hwpx");
-const pathFilterEl = document.getElementById("path-filter");
 const sortHeaderButtons = Array.from(document.querySelectorAll("[data-sort-field]"));
 const folderPickerButtonEl = document.getElementById("folder-picker-button");
 const folderInputEl = document.getElementById("folder-input");
@@ -120,9 +117,6 @@ try {
     }
   });
   caseEl.addEventListener("change", clearSearchResults);
-  hwpFilterEl.addEventListener("change", handleFilterChange);
-  hwpxFilterEl.addEventListener("change", handleFilterChange);
-  pathFilterEl.addEventListener("input", handleFilterChange);
   sortHeaderButtons.forEach((button) => {
     button.addEventListener("click", () => {
       toggleSortField(button.dataset.sortField);
@@ -221,7 +215,7 @@ async function runSearch() {
     return;
   }
   if (state.documents.length === 0) {
-    summaryEl.textContent = state.localDocuments.length === 0 ? t("summary.chooseFolder") : t("summary.noFilesMatch");
+    summaryEl.textContent = t("summary.chooseFolder");
     return;
   }
 
@@ -447,14 +441,6 @@ function transferableBuffer(bytes) {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
 
-function handleFilterChange() {
-  resetSearchState();
-  syncDocuments();
-  renderPreview();
-  renderIdleSummary();
-  updateReadyState();
-}
-
 function handleSortChange() {
   syncDocuments();
   sortSearchResults();
@@ -507,13 +493,7 @@ function syncGroupLevelSlider(groupLevel) {
 }
 
 function syncDocuments() {
-  const pathNeedle = pathFilterEl.value.trim().toLocaleLowerCase();
-  state.documents = state.localDocuments.filter((doc) => {
-    const format = doc.format.toLocaleLowerCase();
-    const typeAllowed = (format === "hwp" && hwpFilterEl.checked) || (format === "hwpx" && hwpxFilterEl.checked);
-    const pathAllowed = !pathNeedle || doc.path.toLocaleLowerCase().includes(pathNeedle);
-    return typeAllowed && pathAllowed;
-  }).sort(compareDocuments);
+  state.documents = [...state.localDocuments].sort(compareDocuments);
   state.lastWorkerCount = resolveWorkerCount();
   renderMetrics();
 }
@@ -809,13 +789,9 @@ function diagnosticState() {
 }
 
 function renderIdleSummary() {
-  if (state.documents.length === 0 && state.localDocuments.length > 0) {
-    summaryEl.textContent = t("summary.noFilesMatch");
-  } else {
-    summaryEl.textContent = state.documents.length === 0
-      ? t("summary.idle")
-      : t("summary.queued", { count: state.documents.length });
-  }
+  summaryEl.textContent = state.documents.length === 0
+    ? t("summary.idle")
+    : t("summary.queued", { count: state.documents.length });
   resultsEl.textContent = "";
   renderMetrics();
 }
@@ -847,9 +823,7 @@ function clearSearchResults() {
 }
 
 function renderMetrics() {
-  sourceCountEl.textContent = state.localDocuments.length > 0 && state.documents.length !== state.localDocuments.length
-    ? t("summary.queuedFiltered", { visible: state.documents.length, total: state.localDocuments.length })
-    : t("summary.queued", { count: state.documents.length });
+  sourceCountEl.textContent = t("summary.queued", { count: state.documents.length });
   metricDocsEl.textContent = String(state.documents.length);
   metricScannedEl.textContent = String(state.scanned);
   metricMatchesEl.textContent = String(state.totalMatches);

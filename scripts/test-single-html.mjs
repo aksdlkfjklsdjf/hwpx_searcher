@@ -88,15 +88,17 @@ try {
     menuGone: !document.querySelector(".menubar"),
     dropOverlayHidden: document.querySelector("#drop-overlay")?.hidden,
     queuedSelectorGone: !document.querySelector("#sample"),
+    filterControlsGone: !document.querySelector("#filter-hwp, #filter-hwpx, #path-filter"),
+    filterPanelLabelGone: !document.body.textContent.includes("Filters"),
     groupLevelValue: document.querySelector("#group-level")?.value,
     groupSliderValue: document.querySelector("#group-level-slider")?.dataset.value,
-    groupSliderSelected: document.querySelector("[data-group-level='page']")?.getAttribute("aria-checked"),
+    groupSliderSelected: document.querySelector("[data-group-level='file']")?.getAttribute("aria-checked"),
     sortHeaderActive: document.querySelector("[data-sort-field='name']")?.getAttribute("aria-sort"),
     sortHeaderText: document.querySelector("[data-sort-field='name']")?.textContent?.trim(),
     themeButtonPreference: document.querySelector("#theme-button")?.dataset.themePreference,
     themeButtonText: document.querySelector("#theme-button-label")?.textContent,
   }))()`);
-  if (!initialUi.menuGone || initialUi.dropOverlayHidden !== true || !initialUi.queuedSelectorGone || initialUi.groupLevelValue !== "page" || initialUi.groupSliderValue !== "page" || initialUi.groupSliderSelected !== "true" || initialUi.sortHeaderActive !== "ascending" || !initialUi.sortHeaderText?.includes("Filename") || initialUi.themeButtonPreference !== "system" || initialUi.themeButtonText !== "Theme: System") {
+  if (!initialUi.menuGone || initialUi.dropOverlayHidden !== true || !initialUi.queuedSelectorGone || !initialUi.filterControlsGone || !initialUi.filterPanelLabelGone || initialUi.groupLevelValue !== "file" || initialUi.groupSliderValue !== "file" || initialUi.groupSliderSelected !== "true" || initialUi.sortHeaderActive !== "ascending" || !initialUi.sortHeaderText?.includes("Filename") || initialUi.themeButtonPreference !== "system" || initialUi.themeButtonText !== "Theme: System") {
     throw new Error(`Initial UI chrome was wrong: ${JSON.stringify(initialUi)}`);
   }
 
@@ -275,6 +277,8 @@ try {
   }
 
   const recursiveSearch = await client.evaluate(`(() => {
+    const title = document.querySelector(".result-title");
+    const pageList = document.querySelector(".page-match-list");
     return {
       resultCards: document.querySelectorAll(".result-card").length,
       marked: document.querySelectorAll("mark").length,
@@ -287,6 +291,9 @@ try {
       pageRows: document.querySelectorAll(".page-match-row").length,
       occurrenceRows: document.querySelectorAll(".occurrence-row").length,
       groupLevel: document.querySelector("#group-level")?.value,
+      titleExpanded: title?.getAttribute("aria-expanded"),
+      pageListHidden: pageList?.hidden,
+      pageListDisplay: pageList ? getComputedStyle(pageList).display : "",
       previewOpen: !document.querySelector("#preview-overlay")?.hidden,
       fileState: document.querySelector("#file-state")?.textContent,
       hasSvg: Boolean(document.querySelector("#page svg")),
@@ -298,8 +305,8 @@ try {
   if (recursiveSearch.status !== "Ready" || recursiveSearch.docs !== "2" || recursiveSearch.scanned !== "2" || Number(recursiveSearch.workers) !== expectedAutoWorkers) {
     throw new Error(`Search metrics/status were wrong: ${JSON.stringify(recursiveSearch)}`);
   }
-  if (recursiveSearch.resultCards < 1 || recursiveSearch.pageRows < 1 || recursiveSearch.occurrenceRows !== 0 || recursiveSearch.groupLevel !== "page" || recursiveSearch.previewOpen || recursiveSearch.hasSvg || !recursiveSearch.resultNames.includes("local-line.hwp") || recursiveSearch.resultNames.some((name) => name.includes("/")) || !recursiveSearch.resultTitles.some((title) => title.includes("contracts/2026/local-line.hwp"))) {
-    throw new Error(`Recursive search did not group imported nested files by page: ${JSON.stringify(recursiveSearch)}`);
+  if (recursiveSearch.resultCards < 1 || recursiveSearch.pageRows < 1 || recursiveSearch.occurrenceRows !== 0 || recursiveSearch.groupLevel !== "file" || recursiveSearch.titleExpanded !== "false" || recursiveSearch.pageListHidden !== true || recursiveSearch.pageListDisplay !== "none" || recursiveSearch.previewOpen || recursiveSearch.hasSvg || !recursiveSearch.resultNames.includes("local-line.hwp") || recursiveSearch.resultNames.some((name) => name.includes("/")) || !recursiveSearch.resultTitles.some((title) => title.includes("contracts/2026/local-line.hwp"))) {
+    throw new Error(`Recursive search did not render imported nested files at collapsed file level: ${JSON.stringify(recursiveSearch)}`);
   }
 
   const fileLevel = await client.evaluate(`(() => {
@@ -609,7 +616,7 @@ try {
     };
   })()`);
 
-  if (!kpsPreview.foundPage47 || !kpsPreview.previewOpen || !kpsPreview.hasSvg || kpsPreview.expectedHighlights !== 8 || kpsPreview.highlights !== 8 || kpsPreview.highlightLayerOnTop !== true || !kpsPreview.title?.includes("page 47 of 78")) {
+  if (!kpsPreview.foundPage47 || !kpsPreview.previewOpen || !kpsPreview.hasSvg || kpsPreview.expectedHighlights !== 8 || kpsPreview.highlights !== 8 || kpsPreview.highlightLayerOnTop !== true || !kpsPreview.title?.includes("page 47 of ")) {
     throw new Error(`KPS page 47 preview did not show visible highlight layer: ${JSON.stringify(kpsPreview)}`);
   }
 
@@ -637,11 +644,11 @@ try {
     },
   ];
   const invalidImport = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(invalidFiles)})`);
-  if (invalidImport.localCount !== 1 || invalidImport.documentCount !== 1 || invalidImport.scanErrors !== 0) {
-    throw new Error(`Invalid fixture import failed: ${JSON.stringify(invalidImport)}`);
+  if (invalidImport.localCount !== 0 || invalidImport.documentCount !== 0 || invalidImport.scanErrors !== 1 || invalidImport.errorDetailsOpen !== false) {
+    throw new Error(`Invalid fixture was not rejected during import: ${JSON.stringify(invalidImport)}`);
   }
   const invalidSearch = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.search("anything")`);
-  if (invalidSearch.scanErrors !== 1 || invalidSearch.scanned !== 1 || invalidSearch.totalMatches !== 0 || invalidSearch.errorDetailsOpen !== false) {
+  if (invalidSearch.scanErrors !== 1 || invalidSearch.scanned !== 0 || invalidSearch.totalMatches !== 0 || invalidSearch.errorDetailsOpen !== false) {
     throw new Error(`Invalid fixture did not produce a closed error state: ${JSON.stringify(invalidSearch)}`);
   }
   const errorDetails = await client.evaluate(`(() => {

@@ -3,3 +3,5 @@ dist/
 node_modules/
 .tmp/
 release/
+rhwp_bg.wasm
+rhwp_bg.wasm.base64.js
