@@ -79,6 +79,11 @@ async function walkDirectoryHandle(directoryHandle, prefix, files) {
 }
 
 async function loadSelectedFiles(files) {
+  const hwpFiles = files
+    .filter(isHwpLikeFile)
+    .sort((a, b) => filePathOf(a).localeCompare(filePathOf(b)));
+
+async function loadSelectedFiles(files) {
   state.localDocuments = [];
   state.scanErrors = [];
   state.searchResults = [];
