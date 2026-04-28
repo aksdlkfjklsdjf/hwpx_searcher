@@ -1873,10 +1873,6 @@
 
       button.addEventListener("click", async () => {
         try {
-          if (isFileSystemDirectoryApiSupported()) {
-            await pickFilesWithDirectoryApi();
-            return;
-          }
           input.click();
         } catch (error) {
           state.scanErrors = [{
@@ -1889,48 +1885,6 @@
           updateReadyState();
         }
       });
-    }
-
-    function isFileSystemDirectoryApiSupported() {
-      return typeof window.showDirectoryPicker === "function";
-    }
-
-    async function pickFilesWithDirectoryApi() {
-      try {
-        setStatus("indexing", "busy");
-        const directoryHandle = await window.showDirectoryPicker();
-        const files = await collectDirectoryHandleFiles(directoryHandle);
-        await loadSelectedFiles(files);
-      } catch (error) {
-        if (isUserAbortError(error)) {
-          setStatus("ready");
-          return;
-        }
-        throw error;
-      }
-    }
-
-    function isUserAbortError(error) {
-      return error instanceof DOMException && error.name === "AbortError";
-    }
-
-    async function collectDirectoryHandleFiles(directoryHandle) {
-      const files = [];
-      await walkDirectoryHandle(directoryHandle, "", files);
-      return files;
-    }
-
-    async function walkDirectoryHandle(directoryHandle, prefix, files) {
-      for await (const [name, handle] of directoryHandle.entries()) {
-        if (handle.kind === "file") {
-          const file = await handle.getFile();
-          files.push(fileWithRelativePath(file, prefix + name));
-          continue;
-        }
-        if (handle.kind === "directory") {
-          await walkDirectoryHandle(handle, prefix + name + "/", files);
-        }
-      }
     }
 
     async function loadSelectedFiles(files) {
@@ -2054,6 +2008,20 @@
 
     async function collectDroppedFiles(dataTransfer) {
       const items = Array.from(dataTransfer?.items || []);
+      const handleItems = items
+        .map((item) => typeof item.getAsFileSystemHandle === "function" ? item.getAsFileSystemHandle() : null)
+        .filter(Boolean);
+      if (handleItems.length > 0) {
+        const files = [];
+        for (const handlePromise of handleItems) {
+          const handle = await handlePromise;
+          await collectFileSystemHandleFiles(handle, "", files);
+        }
+        if (files.length > 0) {
+          return files;
+        }
+      }
+
       const entryItems = items
         .map((item) => typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null)
         .filter(Boolean);
@@ -2076,6 +2044,25 @@
       }
 
       return Array.from(dataTransfer?.files || []);
+    }
+
+    async function collectFileSystemHandleFiles(handle, prefix, output) {
+      if (!handle) {
+        return;
+      }
+      if (handle.kind === "file") {
+        const file = await handle.getFile();
+        output.push(fileWithRelativePath(file, prefix + handle.name));
+        return;
+      }
+      if (handle.kind !== "directory") {
+        return;
+      }
+
+      const directoryPrefix = prefix + handle.name + "/";
+      for await (const childHandle of handle.values()) {
+        await collectFileSystemHandleFiles(childHandle, directoryPrefix, output);
+      }
     }
 
     async function collectEntryFiles(entry, prefix, output) {
