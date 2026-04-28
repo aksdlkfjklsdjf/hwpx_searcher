@@ -72,6 +72,7 @@ const hwpFilterEl = document.getElementById("filter-hwp");
 const hwpxFilterEl = document.getElementById("filter-hwpx");
 const pathFilterEl = document.getElementById("path-filter");
 const sortHeaderButtons = Array.from(document.querySelectorAll("[data-sort-field]"));
+const folderPickerButtonEl = document.getElementById("folder-picker-button");
 const folderInputEl = document.getElementById("folder-input");
 const fileStateEl = document.getElementById("file-state");
 const sourceCountEl = document.getElementById("source-count");
@@ -145,8 +146,9 @@ try {
     renderErrorDetails();
     updateReadyState();
   });
-  folderInputEl.addEventListener("change", async () => {
-    await loadSelectedFiles(Array.from(folderInputEl.files || []));
+  installFolderPicker({
+    button: folderPickerButtonEl,
+    input: folderInputEl,
   });
   appWindowEl.addEventListener("dragenter", handleDragEnter);
   appWindowEl.addEventListener("dragover", handleDragOver);
@@ -466,7 +468,7 @@ function handleGroupLevelChange() {
 }
 
 function setGroupLevel(groupLevel) {
-  const nextGroupLevel = Object.values(GROUP_LEVEL).includes(groupLevel) ? groupLevel : GROUP_LEVEL.page;
+  const nextGroupLevel = Object.values(GROUP_LEVEL).includes(groupLevel) ? groupLevel : GROUP_LEVEL.file;
   if (groupLevelEl.value === nextGroupLevel) {
     syncGroupLevelSlider(nextGroupLevel);
     return;
