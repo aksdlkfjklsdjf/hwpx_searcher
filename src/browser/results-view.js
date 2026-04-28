@@ -112,7 +112,7 @@ function renderQueuedFileList() {
 }
 
 function currentGroupLevel() {
-  return Object.values(GROUP_LEVEL).includes(groupLevelEl.value) ? groupLevelEl.value : GROUP_LEVEL.page;
+  return Object.values(GROUP_LEVEL).includes(groupLevelEl.value) ? groupLevelEl.value : GROUP_LEVEL.file;
 }
 
 function groupOccurrencesByPage(occurrences) {

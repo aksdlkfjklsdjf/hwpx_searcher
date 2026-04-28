@@ -54,6 +54,7 @@ function searchDocument(task) {
 
     return {
       documentIndex: task.documentIndex,
+      descriptorId: descriptor.id,
       name: descriptor.name,
       format: descriptor.format,
       rawFormat: descriptor.format,

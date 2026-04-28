@@ -72,6 +72,7 @@ const hwpFilterEl = document.getElementById("filter-hwp");
 const hwpxFilterEl = document.getElementById("filter-hwpx");
 const pathFilterEl = document.getElementById("path-filter");
 const sortHeaderButtons = Array.from(document.querySelectorAll("[data-sort-field]"));
+const folderPickerButtonEl = document.getElementById("folder-picker-button");
 const folderInputEl = document.getElementById("folder-input");
 const fileStateEl = document.getElementById("file-state");
 const sourceCountEl = document.getElementById("source-count");
@@ -145,8 +146,9 @@ try {
     renderErrorDetails();
     updateReadyState();
   });
-  folderInputEl.addEventListener("change", async () => {
-    await loadSelectedFiles(Array.from(folderInputEl.files || []));
+  installFolderPicker({
+    button: folderPickerButtonEl,
+    input: folderInputEl,
   });
   appWindowEl.addEventListener("dragenter", handleDragEnter);
   appWindowEl.addEventListener("dragover", handleDragOver);
@@ -288,6 +290,7 @@ async function searchDescriptor(documentIndex, descriptor, query, caseSensitive)
 
     return {
       documentIndex,
+      descriptorId: descriptor.id,
       name: descriptor.name,
       format: descriptor.format,
       rawFormat: descriptor.format,
@@ -378,11 +381,12 @@ function handleSearchResult(result, query, caseSensitive) {
   state.scanned += 1;
   progressEl.value = state.scanned;
   if (result.count > 0) {
+    const sourceDescriptor = descriptorForResult(result) || state.documents[result.documentIndex];
     result.query = query;
     result.caseSensitive = caseSensitive;
-    result.rawFormat = state.documents[result.documentIndex]?.format || result.rawFormat || result.format;
-    result.size = state.documents[result.documentIndex]?.size ?? result.size;
-    result.lastModified = state.documents[result.documentIndex]?.lastModified ?? result.lastModified;
+    result.rawFormat = sourceDescriptor?.format || result.rawFormat || result.format;
+    result.size = sourceDescriptor?.size ?? result.size;
+    result.lastModified = sourceDescriptor?.lastModified ?? result.lastModified;
     state.searchResults.push(result);
     sortSearchResults();
     state.totalMatches += result.count;
@@ -390,6 +394,25 @@ function handleSearchResult(result, query, caseSensitive) {
   }
   summaryEl.textContent = t("summary.progress", { scanned: state.scanned, total: state.documents.length });
   renderMetrics();
+}
+
+function descriptorForResult(result) {
+  if (!result) {
+    return null;
+  }
+  if (result.descriptorId) {
+    const byId = state.localDocuments.find((descriptor) => descriptor.id === result.descriptorId);
+    if (byId) {
+      return byId;
+    }
+  }
+  if (result.path) {
+    const byPath = state.localDocuments.find((descriptor) => descriptor.path === result.path);
+    if (byPath) {
+      return byPath;
+    }
+  }
+  return null;
 }
 
 function handleSearchError(path, error) {
@@ -405,6 +428,7 @@ function handleSearchError(path, error) {
 
 function publicDescriptor(descriptor) {
   return {
+    id: descriptor.id,
     name: descriptor.name,
     label: descriptor.label,
     format: descriptor.format,
@@ -466,7 +490,7 @@ function handleGroupLevelChange() {
 }
 
 function setGroupLevel(groupLevel) {
-  const nextGroupLevel = Object.values(GROUP_LEVEL).includes(groupLevel) ? groupLevel : GROUP_LEVEL.page;
+  const nextGroupLevel = Object.values(GROUP_LEVEL).includes(groupLevel) ? groupLevel : GROUP_LEVEL.file;
   if (groupLevelEl.value === nextGroupLevel) {
     syncGroupLevelSlider(nextGroupLevel);
     return;
