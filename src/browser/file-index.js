@@ -83,6 +83,7 @@ async function loadSelectedFiles(files) {
     .filter(isHwpLikeFile)
     .sort((a, b) => filePathOf(a).localeCompare(filePathOf(b)));
 
+async function loadSelectedFiles(files) {
   state.localDocuments = [];
   state.scanErrors = [];
   state.searchResults = [];
@@ -90,6 +91,10 @@ async function loadSelectedFiles(files) {
   state.scanned = 0;
   state.totalMatches = 0;
   state.storedFileCount = 0;
+
+  const resolvedFiles = await resolveSearchableFiles(files);
+  const hwpFiles = resolvedFiles
+    .sort((a, b) => filePathOf(a).localeCompare(filePathOf(b)));
 
   if (hwpFiles.length === 0) {
     await clearStoredFiles();
@@ -109,6 +114,25 @@ async function loadSelectedFiles(files) {
   renderPreview();
   renderIdleSummary();
   updateReadyState();
+}
+
+async function resolveSearchableFiles(files) {
+  const output = [];
+  for (const file of files) {
+    if (!isHwpLikeFile(file)) {
+      continue;
+    }
+    const detectedFormat = await detectDocumentFormat(file);
+    if (!detectedFormat) {
+      state.scanErrors.push({
+        path: filePathOf(file),
+        error: "Unsupported HWP/HWPX signature",
+      });
+      continue;
+    }
+    output.push(fileWithDetectedFormat(file, detectedFormat));
+  }
+  return output;
 }
 
 function handleDragEnter(event) {
@@ -243,7 +267,7 @@ async function createDocumentDescriptors(files) {
     id: "folder:" + filePathOf(file),
     name: file.name,
     label: filePathOf(file),
-    format: extensionOf(file.name).toUpperCase(),
+    format: fileFormatOf(file),
     path: filePathOf(file),
     repoPath: filePathOf(file),
     source: "folder",
@@ -323,6 +347,62 @@ function fileWithRelativePath(file, relativePath) {
 function isHwpLikeFile(file) {
   const ext = extensionOf(file.name || filePathOf(file));
   return ext === "hwp" || ext === "hwpx";
+}
+
+async function detectDocumentFormat(file) {
+  const head = await readFileHead(file, 8);
+  if (hasCfbSignature(head)) {
+    return "HWP";
+  }
+  if (hasZipSignature(head)) {
+    return "HWPX";
+  }
+  return null;
+}
+
+function readFileHead(file, size) {
+  const source = file?.blob instanceof Blob
+    ? file.blob
+    : (file instanceof Blob ? file : null);
+  if (source) {
+    return source.slice(0, size).arrayBuffer().then((buffer) => new Uint8Array(buffer));
+  }
+  return file.arrayBuffer().then((buffer) => new Uint8Array(buffer).slice(0, size));
+}
+
+function hasCfbSignature(bytes) {
+  return bytes[0] === 0xd0
+    && bytes[1] === 0xcf
+    && bytes[2] === 0x11
+    && bytes[3] === 0xe0
+    && bytes[4] === 0xa1
+    && bytes[5] === 0xb1
+    && bytes[6] === 0x1a
+    && bytes[7] === 0xe1;
+}
+
+function hasZipSignature(bytes) {
+  return bytes[0] === 0x50
+    && bytes[1] === 0x4b
+    && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)
+    && (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08);
+}
+
+function fileWithDetectedFormat(file, format) {
+  const sourceBlob = file?.blob instanceof Blob ? file.blob : file;
+  return {
+    name: file.name,
+    size: file.size,
+    lastModified: file.lastModified,
+    webkitRelativePath: file.webkitRelativePath || "",
+    blob: sourceBlob,
+    arrayBuffer: () => sourceBlob.arrayBuffer(),
+    __detectedFormat: format,
+  };
+}
+
+function fileFormatOf(file) {
+  return file.__detectedFormat || extensionOf(file.name).toUpperCase();
 }
 
 function filePathOf(file) {
