@@ -8,6 +8,7 @@ test("finds case-insensitive matches with snippets", () => {
   const matches = findTextMatches("Alpha beta ALPHA", "alpha", false, 6);
   assert.equal(matches.length, 2);
   assert.equal(matches[0]?.index, 0);
+  assert.equal(matches[0]?.length, 5);
   assert.equal(matches[1]?.index, 11);
   assert.match(matches[1]?.snippet ?? "", /ALPHA/);
 });

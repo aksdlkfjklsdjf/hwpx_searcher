@@ -101,6 +101,19 @@ try {
   if (!initialUi.menuGone || initialUi.dropOverlayHidden !== true || !initialUi.queuedSelectorGone || !initialUi.filterControlsGone || !initialUi.filterPanelLabelGone || initialUi.groupLevelValue !== "file" || initialUi.groupSliderValue !== "file" || initialUi.groupSliderSelected !== "true" || initialUi.sortHeaderActive !== "ascending" || !initialUi.sortHeaderText?.includes("Filename") || initialUi.themeButtonPreference !== "system" || initialUi.themeButtonText !== "Theme: System") {
     throw new Error(`Initial UI chrome was wrong: ${JSON.stringify(initialUi)}`);
   }
+  const browserCoreSafety = await client.evaluate(`(() => {
+    const maliciousSvg = '<svg viewBox="0 0 10 10" onload="alert(1)"><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><rect x="1" y="2" width="3" height="4" onclick="alert(2)" fill="url(https://example.com/paint)"/><circle cx="5" cy="5" r="2" fill="#000"/></svg>';
+    const sanitized = window.__HWP_SINGLE_HTML_TEST__.sanitizeSvg(maliciousSvg);
+    return {
+      emptyMatches: window.__HWP_SINGLE_HTML_TEST__.findTextMatches("text", "", false).length,
+      sanitized,
+      keepsSafeShape: sanitized.includes("<circle"),
+      keepsRoot: sanitized.includes("<svg"),
+    };
+  })()`);
+  if (browserCoreSafety.emptyMatches !== 0 || !browserCoreSafety.keepsSafeShape || !browserCoreSafety.keepsRoot || /script|foreignObject|onload|onclick|https:\/\/example\.com|url\(https:/i.test(browserCoreSafety.sanitized)) {
+    throw new Error(`Browser core safety checks failed: ${JSON.stringify(browserCoreSafety)}`);
+  }
 
   const koreanLanguage = await client.evaluate(`(async () => {
     const state = await window.__HWP_SINGLE_HTML_TEST__.setLanguage("ko");

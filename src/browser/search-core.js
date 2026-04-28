@@ -1,4 +1,8 @@
 function findTextMatches(text, query, caseSensitive) {
+  if (query.length === 0) {
+    return [];
+  }
+
   const needle = caseSensitive ? query : query.toLocaleLowerCase();
   const haystack = caseSensitive ? text : text.toLocaleLowerCase();
   const output = [];

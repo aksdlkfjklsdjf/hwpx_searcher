@@ -3,7 +3,7 @@ function renderPreview() {
     previewOverlayEl.hidden = false;
     viewerTitleEl.textContent = previewTitle(state.preview);
     viewerSourceEl.textContent = state.preview.source;
-    pageEl.innerHTML = state.preview.svg;
+    pageEl.replaceChildren(sanitizeSvgForPreview(state.preview.svg));
     return;
   }
 
@@ -96,6 +96,75 @@ function renderHighlightedPageSvg(doc, page, query, caseSensitive, occurrences =
     return openingEnd === -1 ? svg : svg.slice(0, openingEnd + 1) + highlightLayer + svg.slice(openingEnd + 1);
   }
   return svg.slice(0, insertAt) + highlightLayer + svg.slice(insertAt);
+}
+
+const SAFE_SVG_ELEMENTS = new Set([
+  "svg", "g", "path", "rect", "text", "tspan", "line", "polyline", "polygon",
+  "ellipse", "circle", "defs", "clipPath", "linearGradient", "radialGradient",
+  "stop", "pattern", "mask", "use", "image",
+]);
+const SAFE_SVG_ATTRIBUTES = new Set([
+  "aria-hidden", "class", "clip-path", "cx", "cy", "d", "dx", "dy", "fill",
+  "fill-opacity", "font-family", "font-size", "font-style", "font-weight",
+  "height", "id", "mask", "opacity", "points", "pointer-events", "r", "rx",
+  "ry", "stroke", "stroke-dasharray", "stroke-linecap", "stroke-linejoin",
+  "stroke-opacity", "stroke-width", "text-anchor", "transform", "vector-effect",
+  "viewBox", "width", "x", "x1", "x2", "xlink:href", "xmlns", "xmlns:xlink",
+  "y", "y1", "y2",
+]);
+
+function sanitizeSvgForPreview(svg) {
+  const template = document.createElement("template");
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(String(svg || ""), "image/svg+xml");
+  const root = parsed.documentElement;
+  if (!root || root.localName === "parsererror" || root.localName !== "svg") {
+    return template.content;
+  }
+
+  const imported = document.importNode(root, true);
+  sanitizeSvgElement(imported);
+  if (imported.parentNode) {
+    imported.parentNode.removeChild(imported);
+  }
+  template.content.append(imported);
+  return template.content;
+}
+
+function sanitizeSvgElement(element) {
+  for (const child of Array.from(element.children)) {
+    if (!SAFE_SVG_ELEMENTS.has(child.localName)) {
+      child.remove();
+      continue;
+    }
+    sanitizeSvgElement(child);
+  }
+
+  for (const attr of Array.from(element.attributes)) {
+    if (attr.name.startsWith("on") || !SAFE_SVG_ATTRIBUTES.has(attr.name)) {
+      element.removeAttribute(attr.name);
+      continue;
+    }
+    if (isUnsafeSvgAttributeValue(attr.name, attr.value)) {
+      element.removeAttribute(attr.name);
+    }
+  }
+}
+
+function isUnsafeSvgAttributeValue(name, value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.includes("javascript:") || normalized.includes("data:text/html")) {
+    return true;
+  }
+  if (normalized.includes("url(") && !normalized.includes("url(#")) {
+    return true;
+  }
+  if (name === "href" || name === "xlink:href") {
+    return normalized.length > 0
+      && !normalized.startsWith("#")
+      && !/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,/.test(normalized);
+  }
+  return false;
 }
 
 function buildDocumentHighlightRects(doc, page, query, caseSensitive, occurrences = []) {

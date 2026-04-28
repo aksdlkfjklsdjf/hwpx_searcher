@@ -11,6 +11,7 @@ export interface SearchOptions {
 export interface SearchOccurrence {
   page: number;
   index: number;
+  length: number;
   snippet: string;
 }
 
@@ -55,6 +56,7 @@ export async function searchHwpFile(
         occurrences.push({
           page: page + 1,
           index: match.index,
+          length: match.length,
           snippet: match.snippet,
         });
       }

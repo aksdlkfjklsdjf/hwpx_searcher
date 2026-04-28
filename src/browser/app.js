@@ -108,7 +108,11 @@ try {
   syncDocuments();
 
   searchButtonEl.addEventListener("click", () => {
-    void runSearch();
+    if (state.searching) {
+      cancelSearch();
+    } else {
+      void runSearch();
+    }
   });
   searchEl.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -192,6 +196,12 @@ try {
       setSort(field, direction);
       return diagnosticState();
     },
+    findTextMatches: (text, query, caseSensitive) => findTextMatches(text, query, caseSensitive),
+    sanitizeSvg: (svg) => {
+      const container = document.createElement("div");
+      container.append(sanitizeSvgForPreview(svg));
+      return container.innerHTML;
+    },
     state: diagnosticState,
   };
 } catch (error) {
@@ -227,7 +237,8 @@ async function runSearch() {
   state.scanned = 0;
   state.totalMatches = 0;
   state.workerFallbackError = "";
-  searchButtonEl.disabled = true;
+  searchButtonEl.disabled = false;
+  searchButtonEl.textContent = t("search.cancel");
   workerCountEl.disabled = true;
   const workerCount = resolveWorkerCount();
   state.lastWorkerCount = workerCount;
@@ -245,8 +256,13 @@ async function runSearch() {
     await searchSequentially(runId, query, caseEl.checked);
   }
 
+  if (runId !== state.searchRun) {
+    return;
+  }
+
   state.searching = false;
   searchButtonEl.disabled = false;
+  searchButtonEl.textContent = t("search.button");
   workerCountEl.disabled = false;
   progressEl.hidden = true;
   setStatus("ready");
@@ -311,9 +327,9 @@ async function searchSequentially(runId, query, caseSensitive) {
     summaryEl.textContent = t("summary.progress", { scanned: documentIndex + 1, total: state.documents.length });
     try {
       const result = await searchDescriptor(documentIndex, descriptor, query, caseSensitive);
-      handleSearchResult(result, query, caseSensitive);
+      handleSearchResult(runId, result, query, caseSensitive);
     } catch (error) {
-      handleSearchError(descriptor.path, error);
+      handleSearchError(runId, descriptor.path, error);
     }
   }
 }
@@ -363,15 +379,19 @@ async function searchWithWorkers(runId, query, caseSensitive, workerCount) {
           caseSensitive,
           bytes: buffer,
         }, [buffer]);
-        handleSearchResult(result, query, caseSensitive);
+        handleSearchResult(runId, result, query, caseSensitive);
       } catch (error) {
-        handleSearchError(descriptor.path, error);
+        handleSearchError(runId, descriptor.path, error);
       }
     }
   }
 }
 
-function handleSearchResult(result, query, caseSensitive) {
+function handleSearchResult(runId, result, query, caseSensitive) {
+  if (runId !== state.searchRun) {
+    return;
+  }
+
   state.scanned += 1;
   progressEl.value = state.scanned;
   if (result.count > 0) {
@@ -409,7 +429,11 @@ function descriptorForResult(result) {
   return null;
 }
 
-function handleSearchError(path, error) {
+function handleSearchError(runId, path, error) {
+  if (runId !== state.searchRun) {
+    return;
+  }
+
   state.scanned += 1;
   progressEl.value = state.scanned;
   state.scanErrors.push({
@@ -463,8 +487,18 @@ function resetSearchState() {
   state.totalMatches = 0;
   state.workerFallbackError = "";
   searchButtonEl.disabled = false;
+  searchButtonEl.textContent = t("search.button");
+  workerCountEl.disabled = false;
   progressEl.hidden = true;
   setStatus("ready");
+}
+
+function cancelSearch() {
+  resetSearchState();
+  renderPreview();
+  renderIdleSummary();
+  renderMetrics();
+  updateReadyState();
 }
 
 function handleGroupLevelChange() {
@@ -592,6 +626,7 @@ function applyLanguagePreference(language) {
   languageSelectEl.value = state.language;
   I18n.translateDocument();
   syncThemeButton();
+  syncSearchButton();
   syncSortHeader();
   setStatus(state.statusKey, state.statusState);
   populateWorkerOptions(currentWorkerValue);
@@ -689,6 +724,10 @@ function applyThemePreference(preference) {
 function syncThemeButton() {
   themeButtonEl.dataset.themePreference = state.themePreference;
   themeButtonLabelEl.textContent = t("theme." + state.themePreference);
+}
+
+function syncSearchButton() {
+  searchButtonEl.textContent = state.searching ? t("search.cancel") : t("search.button");
 }
 
 function nextThemePreference() {

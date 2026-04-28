@@ -8,10 +8,11 @@ const rootDir = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const browserDir = path.join(rootDir, "src/browser");
 const options = parseArgs(process.argv.slice(2));
 const outputPath = path.resolve(rootDir, options.outputPath);
+const outputDir = path.dirname(outputPath);
 const wasmFileName = "rhwp_bg.wasm";
 const wasmFallbackFileName = "rhwp_bg.wasm.base64.js";
-const wasmOutputPath = path.join(rootDir, wasmFileName);
-const wasmFallbackOutputPath = path.join(rootDir, wasmFallbackFileName);
+const wasmOutputPath = path.join(outputDir, wasmFileName);
+const wasmFallbackOutputPath = path.join(outputDir, wasmFallbackFileName);
 
 const [rhwpJs, rhwpWasm, themeBootstrapJs, css, bodyHtml] = await Promise.all([
   readFile(require.resolve("@rhwp/core/rhwp.js"), "utf8"),

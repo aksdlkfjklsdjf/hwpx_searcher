@@ -56,12 +56,16 @@ const SearchWorkerClient = (() => {
       ready,
       search(task, transfer) {
         const id = ++nextMessageId;
-        worker.postMessage({ type: "search", id, task }, transfer);
         return new Promise((resolve, reject) => {
           pending.set(id, { resolve, reject });
+          worker.postMessage({ type: "search", id, task }, transfer);
         });
       },
       terminate() {
+        for (const [id, callbacks] of pending) {
+          pending.delete(id);
+          callbacks.reject(new Error("Worker terminated before completing task"));
+        }
         worker.terminate();
       },
     };

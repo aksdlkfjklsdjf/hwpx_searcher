@@ -1,5 +1,6 @@
 export interface TextMatch {
   index: number;
+  length: number;
   snippet: string;
 }
 
@@ -26,6 +27,7 @@ export function findTextMatches(
 
     matches.push({
       index,
+      length: query.length,
       snippet: makeSnippet(text, index, query.length, snippetRadius),
     });
     fromIndex = index + Math.max(needle.length, 1);
