@@ -290,6 +290,7 @@ async function searchDescriptor(documentIndex, descriptor, query, caseSensitive)
 
     return {
       documentIndex,
+      descriptorId: descriptor.id,
       name: descriptor.name,
       format: descriptor.format,
       rawFormat: descriptor.format,
@@ -380,11 +381,12 @@ function handleSearchResult(result, query, caseSensitive) {
   state.scanned += 1;
   progressEl.value = state.scanned;
   if (result.count > 0) {
+    const sourceDescriptor = descriptorForResult(result) || state.documents[result.documentIndex];
     result.query = query;
     result.caseSensitive = caseSensitive;
-    result.rawFormat = state.documents[result.documentIndex]?.format || result.rawFormat || result.format;
-    result.size = state.documents[result.documentIndex]?.size ?? result.size;
-    result.lastModified = state.documents[result.documentIndex]?.lastModified ?? result.lastModified;
+    result.rawFormat = sourceDescriptor?.format || result.rawFormat || result.format;
+    result.size = sourceDescriptor?.size ?? result.size;
+    result.lastModified = sourceDescriptor?.lastModified ?? result.lastModified;
     state.searchResults.push(result);
     sortSearchResults();
     state.totalMatches += result.count;
@@ -392,6 +394,25 @@ function handleSearchResult(result, query, caseSensitive) {
   }
   summaryEl.textContent = t("summary.progress", { scanned: state.scanned, total: state.documents.length });
   renderMetrics();
+}
+
+function descriptorForResult(result) {
+  if (!result) {
+    return null;
+  }
+  if (result.descriptorId) {
+    const byId = state.localDocuments.find((descriptor) => descriptor.id === result.descriptorId);
+    if (byId) {
+      return byId;
+    }
+  }
+  if (result.path) {
+    const byPath = state.localDocuments.find((descriptor) => descriptor.path === result.path);
+    if (byPath) {
+      return byPath;
+    }
+  }
+  return null;
 }
 
 function handleSearchError(path, error) {
@@ -407,6 +428,7 @@ function handleSearchError(path, error) {
 
 function publicDescriptor(descriptor) {
   return {
+    id: descriptor.id,
     name: descriptor.name,
     label: descriptor.label,
     format: descriptor.format,

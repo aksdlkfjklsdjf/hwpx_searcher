@@ -30,7 +30,7 @@ async function showResultPreview(item, pageIndex = item.previewPage) {
     return;
   }
 
-  const descriptor = state.documents[item.documentIndex];
+  const descriptor = descriptorForResult(item) || state.documents[item.documentIndex];
   if (!descriptor || targetPage < 0) {
     state.preview = null;
     renderPreview();
