@@ -1,0 +1,68 @@
+name: Auto-update rhwp
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-rhwp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Detect latest @rhwp/core
+        id: latest
+        run: |
+          set -euo pipefail
+          latest_version="$(npm view @rhwp/core version)"
+          current_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).dependencies['@rhwp/core']")"
+          normalized_current="${current_version#^}"
+
+          echo "latest_version=${latest_version}" >> "$GITHUB_OUTPUT"
+          echo "normalized_current=${normalized_current}" >> "$GITHUB_OUTPUT"
+
+          if [ "$normalized_current" = "$latest_version" ]; then
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop when already up-to-date
+        if: steps.latest.outputs.needs_update != 'true'
+        run: echo "@rhwp/core is already at ${{ steps.latest.outputs.normalized_current }}"
+
+      - name: Update dependency and lockfile
+        if: steps.latest.outputs.needs_update == 'true'
+        run: npm install @rhwp/core@${{ steps.latest.outputs.latest_version }} --save-exact
+
+      - name: Build and test
+        if: steps.latest.outputs.needs_update == 'true'
+        run: npm test
+
+      - name: Create pull request
+        if: steps.latest.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/update-rhwp-core-${{ steps.latest.outputs.latest_version }}
+          commit-message: "chore: update @rhwp/core to v${{ steps.latest.outputs.latest_version }}"
+          title: "chore: update @rhwp/core to v${{ steps.latest.outputs.latest_version }}"
+          body: |
+            Automated update triggered by the rhwp dependency check workflow.
+
+            ## Changes
+            - Updates `@rhwp/core` to `${{ steps.latest.outputs.latest_version }}`.
+            - Regenerates lockfile entries.
+            - Verifies with `npm test`.
+          labels: dependencies
