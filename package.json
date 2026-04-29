@@ -15,7 +15,7 @@
     "html:build:release": "node scripts/build-single-html.mjs --embed-wasm --output release/hwp-search.html",
     "html:test": "npm run html:build && node scripts/test-single-html.mjs",
     "html:test:release": "npm run html:build:release && node scripts/test-single-html.mjs release/hwp-search.html",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node --test dist/*.test.js"
   },
   "dependencies": {
     "@rhwp/core": "^0.7.7"
