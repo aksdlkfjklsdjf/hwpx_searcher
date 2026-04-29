@@ -53,6 +53,7 @@ jobs:
 
       - name: Create pull request
         if: steps.latest.outputs.needs_update == 'true'
+        continue-on-error: true
         uses: peter-evans/create-pull-request@v6
         with:
           branch: chore/update-rhwp-core-${{ steps.latest.outputs.latest_version }}
