@@ -90,6 +90,8 @@ jobs:
         if: steps.rhwp.outputs.changed == 'true'
         id: setup-chrome
         uses: browser-actions/setup-chrome@v1
+        with:
+          install-dependencies: "true"
 
       - name: Browser smoke test
         if: steps.rhwp.outputs.changed == 'true'
