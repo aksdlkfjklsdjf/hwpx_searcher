@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 
 const htmlPath = path.resolve(process.argv[2] ?? "hwp-search.html");
@@ -711,8 +712,15 @@ try {
 function findChrome() {
   const candidates = [
     process.env.CHROME_BIN,
+    process.env.CHROME_PATH,
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
     "google-chrome",
     "google-chrome-stable",
     "chromium",
@@ -720,12 +728,41 @@ function findChrome() {
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    if (candidate.includes("/")) {
+    if (isPathLike(candidate)) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+      continue;
+    }
+
+    const resolved = resolveCommand(candidate);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  throw new Error(`Could not find Chrome or Chromium. Checked: ${candidates.join(", ")}`);
+}
+
+function isPathLike(value) {
+  return path.isAbsolute(value) || value.includes("/") || value.includes("\\");
+}
+
+function resolveCommand(command) {
+  const lookup = process.platform === "win32" ? "where.exe" : "which";
+  const result = spawnSync(lookup, [command], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+
+  if (result.status === 0) {
+    const candidate = result.stdout.split(/\r?\n/).find(Boolean);
+    if (candidate) {
       return candidate;
     }
   }
 
-  return candidates[0];
+  return "";
 }
 
 async function getFreePort() {
