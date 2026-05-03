@@ -34,7 +34,7 @@ if (embedsWasm) {
 const chromePath = findChrome();
 const port = await getFreePort();
 const userDataDir = await mkdtemp(path.join(tmpdir(), "hwp-html-chrome-"));
-const chrome = spawn(chromePath, [
+const chromeArgs = [
   "--headless=new",
   "--disable-gpu",
   "--no-first-run",
@@ -42,7 +42,11 @@ const chrome = spawn(chromePath, [
   `--remote-debugging-port=${port}`,
   `--user-data-dir=${userDataDir}`,
   pathToFileURL(htmlPath).href,
-], {
+];
+if (process.env.CI) {
+  chromeArgs.splice(2, 0, "--no-sandbox", "--disable-dev-shm-usage");
+}
+const chrome = spawn(chromePath, chromeArgs, {
   stdio: ["ignore", "pipe", "pipe"],
 });
 
