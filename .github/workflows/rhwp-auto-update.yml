@@ -1,4 +1,4 @@
-name: Auto-update rhwp
+name: Auto-build on rhwp update
 
 on:
   schedule:
@@ -7,63 +7,149 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
+
+concurrency:
+  group: rhwp-auto-update
+  cancel-in-progress: false
 
 jobs:
-  update-rhwp:
-    runs-on: ubuntu-latest
+  build-when-rhwp-updates:
+    name: Build when rhwp latest changes
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASELINE_TAG: rhwp-auto-baseline
+      BASELINE_ASSET: rhwp-version.txt
+      npm_config_audit: "false"
+      npm_config_fund: "false"
+
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - name: Detect latest @rhwp/core
-        id: latest
+      - name: Detect rhwp baseline
+        id: rhwp
+        shell: bash
         run: |
           set -euo pipefail
           latest_version="$(npm view @rhwp/core version)"
-          current_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).dependencies['@rhwp/core']")"
-          normalized_current="${current_version#^}"
+          baseline_version=""
 
-          echo "latest_version=${latest_version}" >> "$GITHUB_OUTPUT"
-          echo "normalized_current=${normalized_current}" >> "$GITHUB_OUTPUT"
-
-          if [ "$normalized_current" = "$latest_version" ]; then
-            echo "needs_update=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          if gh release view "$BASELINE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if gh release download "$BASELINE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$BASELINE_ASSET" \
+              --dir .rhwp-baseline >/dev/null 2>&1; then
+              baseline_version="$(tr -d '[:space:]' < ".rhwp-baseline/$BASELINE_ASSET")"
+            fi
           fi
 
-      - name: Stop when already up-to-date
-        if: steps.latest.outputs.needs_update != 'true'
-        run: echo "@rhwp/core is already at ${{ steps.latest.outputs.normalized_current }}"
+          echo "latest_version=${latest_version}" >> "$GITHUB_OUTPUT"
+          echo "baseline_version=${baseline_version}" >> "$GITHUB_OUTPUT"
 
-      - name: Update dependency and lockfile
-        if: steps.latest.outputs.needs_update == 'true'
-        run: npm install @rhwp/core@${{ steps.latest.outputs.latest_version }} --save-exact
+          if [ "$baseline_version" = "$latest_version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Build and test
-        if: steps.latest.outputs.needs_update == 'true'
+      - name: Stop when baseline matches npm latest
+        if: steps.rhwp.outputs.changed != 'true'
+        run: echo "@rhwp/core baseline is already ${{ steps.rhwp.outputs.baseline_version }}"
+
+      - name: Install latest rhwp
+        if: steps.rhwp.outputs.changed == 'true'
+        run: |
+          npm ci
+          npm update @rhwp/core
+
+      - name: Verify resolved rhwp version
+        if: steps.rhwp.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolved_version="$(node -p "require('./node_modules/@rhwp/core/package.json').version")"
+          if [ "$resolved_version" != "${{ steps.rhwp.outputs.latest_version }}" ]; then
+            echo "Expected @rhwp/core ${{ steps.rhwp.outputs.latest_version }}, got ${resolved_version}" >&2
+            exit 1
+          fi
+
+      - name: Type-check and unit test
+        if: steps.rhwp.outputs.changed == 'true'
         run: npm test
 
-      - name: Create pull request
-        if: steps.latest.outputs.needs_update == 'true'
-        continue-on-error: true
-        uses: peter-evans/create-pull-request@v6
-        with:
-          branch: chore/update-rhwp-core-${{ steps.latest.outputs.latest_version }}
-          commit-message: "chore: update @rhwp/core to v${{ steps.latest.outputs.latest_version }}"
-          title: "chore: update @rhwp/core to v${{ steps.latest.outputs.latest_version }}"
-          body: |
-            Automated update triggered by the rhwp dependency check workflow.
+      - name: Browser smoke test
+        if: steps.rhwp.outputs.changed == 'true'
+        run: npm run html:test
 
-            ## Changes
-            - Updates `@rhwp/core` to `${{ steps.latest.outputs.latest_version }}`.
-            - Regenerates lockfile entries.
-            - Verifies with `npm test`.
-          labels: dependencies
+      - name: Build standalone release HTML
+        if: steps.rhwp.outputs.changed == 'true'
+        run: npm run html:build:release
+
+      - name: Prepare release assets
+        if: steps.rhwp.outputs.changed == 'true'
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rhwp_version="${{ steps.rhwp.outputs.latest_version }}"
+          asset_name="hwp-recursive-search-rhwp-${rhwp_version}.html"
+          asset_path="release/${asset_name}"
+
+          cp release/hwp-search.html "$asset_path"
+          printf '%s\n' "$rhwp_version" > "$BASELINE_ASSET"
+
+          cat > release-notes.md <<NOTES
+          Automated build for @rhwp/core ${rhwp_version}.
+
+          Baseline comparison:
+          - Previous release baseline: ${BASELINE_VERSION:-none}
+          - npm latest @rhwp/core: ${rhwp_version}
+
+          The HTML asset is a standalone production build with the rhwp WASM runtime embedded.
+          NOTES
+
+          {
+            echo "asset_name=${asset_name}"
+            echo "asset_path=${asset_path}"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          BASELINE_VERSION: ${{ steps.rhwp.outputs.baseline_version }}
+
+      - name: Create or update rhwp baseline release
+        if: steps.rhwp.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="rhwp baseline ${{ steps.rhwp.outputs.latest_version }}"
+          asset_path="${{ steps.assets.outputs.asset_path }}"
+
+          if gh release view "$BASELINE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$BASELINE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --notes-file release-notes.md \
+              --target "$GITHUB_SHA" \
+              --latest=false
+          else
+            gh release create "$BASELINE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --notes-file release-notes.md \
+              --target "$GITHUB_SHA" \
+              --latest=false
+          fi
+
+          gh release upload "$BASELINE_TAG" \
+            "$asset_path" \
+            "$BASELINE_ASSET" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
