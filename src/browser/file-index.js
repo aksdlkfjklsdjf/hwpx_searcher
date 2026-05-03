@@ -332,12 +332,15 @@ function isHwpLikeFile(file) {
 }
 
 async function detectDocumentFormat(file) {
-  const head = await readFileHead(file, 8);
+  const head = await readFileHead(file, 32);
   if (hasCfbSignature(head)) {
     return "HWP";
   }
   if (hasZipSignature(head)) {
     return "HWPX";
+  }
+  if (hasHwp3Signature(head)) {
+    return "HWP 3.0";
   }
   return null;
 }
@@ -368,6 +371,20 @@ function hasZipSignature(bytes) {
     && bytes[1] === 0x4b
     && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)
     && (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08);
+}
+
+function hasHwp3Signature(bytes) {
+  const signature = "HWP Document File";
+  if (bytes.length < signature.length) {
+    return false;
+  }
+
+  for (let index = 0; index < signature.length; index += 1) {
+    if (bytes[index] !== signature.charCodeAt(index)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function fileWithDetectedFormat(file, format) {

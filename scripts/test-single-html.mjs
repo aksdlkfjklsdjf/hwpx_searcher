@@ -654,6 +654,18 @@ try {
     throw new Error(`Control-character fixture produced a JSON parse error: ${JSON.stringify(controlCharSearch)}`);
   }
 
+  const hwp3Files = [
+    {
+      name: "legacy-hwp3.hwp",
+      relativePath: "legacy/legacy-hwp3.hwp",
+      base64: Buffer.from("HWP Document File V3.00 \\x1a\\x01\\x02\\x03\\x04\\x05\\x00\\x00").toString("base64"),
+    },
+  ];
+  const hwp3Import = await client.evaluate(`window.__HWP_SINGLE_HTML_TEST__.dropFiles(${JSON.stringify(hwp3Files)})`);
+  if (hwp3Import.localCount !== 1 || hwp3Import.documentCount !== 1 || hwp3Import.scanErrors !== 0 || hwp3Import.samples[0]?.format !== "HWP 3.0") {
+    throw new Error(`HWP 3.0-style fixture was blocked before rhwp search: ${JSON.stringify(hwp3Import)}`);
+  }
+
   const invalidFiles = [
     {
       name: "broken.hwp",
