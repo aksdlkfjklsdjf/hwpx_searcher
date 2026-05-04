@@ -340,7 +340,7 @@ async function detectDocumentFormat(file) {
     return "HWPX";
   }
   if (hasHwp3Signature(head)) {
-    return "HWP 3.0";
+    return "HWP";
   }
   return null;
 }
