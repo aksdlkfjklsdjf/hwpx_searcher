@@ -21,6 +21,19 @@ on:
         required: true
         type: boolean
         default: false
+      use_rhwp_git:
+        description: "Build with @rhwp/core fetched from a GitHub repo (for unreleased HWP 3.0 support)"
+        required: true
+        type: boolean
+        default: false
+      rhwp_git_repo:
+        description: "GitHub owner/repo for @rhwp/core source when use_rhwp_git=true"
+        required: false
+        default: "edwardkim/rhwp"
+      rhwp_git_ref:
+        description: "Git ref (branch/tag/commit) for @rhwp/core when use_rhwp_git=true; leave empty for repository default branch"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -43,6 +56,9 @@ jobs:
       RELEASE_TITLE: ${{ inputs.release_title }}
       RELEASE_DRAFT: ${{ inputs.draft }}
       RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+      USE_RHWP_GIT: ${{ inputs.use_rhwp_git }}
+      RHWP_GIT_REPO: ${{ inputs.rhwp_git_repo }}
+      RHWP_GIT_REF: ${{ inputs.rhwp_git_ref }}
 
     steps:
       - name: Check out repository
@@ -58,6 +74,20 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Optionally install @rhwp/core from GitHub
+        if: env.USE_RHWP_GIT == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${RHWP_GIT_REPO:-edwardkim/rhwp}"
+          ref="${RHWP_GIT_REF:-}"
+          spec="github:${repo}"
+          if [ -n "$ref" ]; then
+            spec="${spec}#${ref}"
+          fi
+          echo "Installing @rhwp/core from ${spec}"
+          npm install --no-save "@rhwp/core@${spec}"
 
       - name: Type-check
         run: npm run check
@@ -95,6 +125,8 @@ jobs:
           Download the HTML asset and open it directly. The rhwp WASM runtime is embedded, so no sibling files are required.
 
           This workflow is manual-only and uses the lightweight `ubuntu-slim` runner. It runs the TypeScript check, unit tests, normal production build, and standalone release build before uploading the release asset.
+
+          Optional workflow inputs can replace `@rhwp/core` with a direct GitHub install (owner/repo + optional ref) before building. Use that path when you need unreleased upstream changes such as HWP 3.0 support from the latest rhwp mainline.
           NOTES
 
       - name: Create or update GitHub Release
