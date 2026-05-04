@@ -93,6 +93,32 @@ const dropOverlayEl = document.getElementById("drop-overlay");
 initializeLanguage();
 initializeTheme();
 installMeasureTextWidth();
+configureFileStoreNamespace();
+
+function configureFileStoreNamespace() {
+  if (typeof BrowserFileStore?.setNamespace !== "function") {
+    return;
+  }
+  BrowserFileStore.setNamespace(resolveTabNamespace());
+}
+
+function resolveTabNamespace() {
+  const fallback = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof sessionStorage === "undefined") {
+    return fallback;
+  }
+  const key = "hwp-search-tab-id";
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing) {
+      return existing;
+    }
+    sessionStorage.setItem(key, fallback);
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 try {
   const moduleUrl = URL.createObjectURL(new Blob([payload.rhwpJs], { type: "text/javascript" }));

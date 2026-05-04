@@ -1,5 +1,6 @@
 const BrowserFileStore = (() => {
-  const dbName = "hwp-recursive-search";
+  const dbNamePrefix = "hwp-recursive-search";
+  let dbName = dbNamePrefix;
   const storeName = "files";
   const batchSize = 100;
 
@@ -78,6 +79,19 @@ const BrowserFileStore = (() => {
     return typeof indexedDB !== "undefined" && typeof Blob !== "undefined";
   }
 
+
+  function setNamespace(namespace) {
+    const normalized = normalizeNamespace(namespace);
+    dbName = normalized ? `${dbNamePrefix}:${normalized}` : dbNamePrefix;
+  }
+
+  function normalizeNamespace(namespace) {
+    if (typeof namespace !== "string") {
+      return "";
+    }
+    return namespace.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+  }
+
   function openDb() {
     if (!isSupported()) {
       return Promise.reject(new Error("IndexedDB is not available"));
@@ -141,5 +155,6 @@ const BrowserFileStore = (() => {
     getBytes,
     isSupported,
     replaceFiles,
+    setNamespace,
   };
 })();
