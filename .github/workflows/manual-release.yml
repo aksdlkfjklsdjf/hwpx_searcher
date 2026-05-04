@@ -75,6 +75,17 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Set up Rust toolchain for rhwp Git build
+        if: env.USE_RHWP_GIT == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack for rhwp Git build
+        if: env.USE_RHWP_GIT == 'true'
+        shell: bash
+        run: cargo install wasm-pack --locked
+
       - name: Optionally install @rhwp/core from GitHub
         if: env.USE_RHWP_GIT == 'true'
         shell: bash
@@ -82,12 +93,31 @@ jobs:
           set -euo pipefail
           repo="${RHWP_GIT_REPO:-edwardkim/rhwp}"
           ref="${RHWP_GIT_REF:-}"
-          spec="github:${repo}"
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+
+          clone_url="https://github.com/${repo}.git"
+          echo "Cloning ${clone_url}"
+          git clone --depth 1 "$clone_url" "$workdir/rhwp"
           if [ -n "$ref" ]; then
-            spec="${spec}#${ref}"
+            git -C "$workdir/rhwp" fetch --depth 1 origin "$ref"
+            git -C "$workdir/rhwp" checkout --detach FETCH_HEAD
           fi
-          echo "Installing @rhwp/core from ${spec}"
-          npm install --no-save "@rhwp/core@${spec}"
+
+          if [ ! -x "$workdir/rhwp/scripts/prepare-npm.sh" ]; then
+            echo "Could not find scripts/prepare-npm.sh in ${repo}" >&2
+            exit 1
+          fi
+
+          (
+            cd "$workdir/rhwp"
+            wasm-pack build --release --target web --out-dir pkg
+            bash scripts/prepare-npm.sh
+          )
+          tarball="$(npm pack "$workdir/rhwp/pkg" --silent)"
+          echo "Installing @rhwp/core from tarball ${tarball}"
+          npm install --no-save "./${tarball}"
+          rm -f "$tarball"
 
       - name: Type-check
         run: npm run check
